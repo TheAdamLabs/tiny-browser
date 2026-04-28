@@ -12,9 +12,10 @@ const KEEPALIVE_ALARM = 'tiny-mcp-keepalive';
 // Interactive element selector — used for text-based element finding.
 // Restricted to truly actionable elements; excludes generic containers.
 const INTERACTIVE =
-  'button, a, input, textarea, select, summary, ' +
+  'button, a, input, textarea, select, summary, label, ' +
   '[role="button"], [role="link"], [role="checkbox"], ' +
-  '[role="menuitem"], [role="tab"], [role="option"], [role="radio"]';
+  '[role="menuitem"], [role="tab"], [role="option"], [role="radio"], ' +
+  '[onclick], [tabindex]:not([tabindex="-1"])';
 
 let ws = null;
 let connected = false;

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tiny-browser calibration</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.6; }
+
+    header { position: sticky; top: 0; z-index: 100; background: #1e293b; border-bottom: 1px solid #334155;
+      padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 1rem; font-weight: 600; color: #94a3b8; }
+    #status { margin-left: auto; font-size: 0.85rem; color: #64748b; }
+    #last-action { padding: 4px 12px; background: #0f172a; border-radius: 6px; color: #38bdf8;
+      font-family: monospace; font-size: 0.85rem; min-width: 300px; }
+
+    section { padding: 32px 40px; border-bottom: 1px solid #1e293b; }
+    h2 { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;
+      color: #475569; margin-bottom: 20px; }
+
+    /* ── 1. CLICK TARGETS ── */
+    .click-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; max-width: 700px; }
+    .target { height: 56px; border-radius: 8px; border: 2px solid #334155; background: #1e293b;
+      cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #94a3b8;
+      display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .target:hover { border-color: #38bdf8; color: #38bdf8; }
+    .target.hit { background: #0ea5e9; border-color: #0ea5e9; color: #fff; }
+
+    /* ── 2. SMALL TARGETS ── */
+    .small-grid { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+    .dot { width: 20px; height: 20px; border-radius: 50%; background: #334155; cursor: pointer;
+      position: relative; transition: background 0.15s; }
+    .dot::after { content: attr(data-label); position: absolute; bottom: -22px; left: 50%;
+      transform: translateX(-50%); font-size: 0.65rem; color: #64748b; white-space: nowrap; }
+    .dot.hit { background: #f59e0b; }
+
+    /* ── 3. TYPING ── */
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; max-width: 700px; }
+    input[type=text], input[type=email], textarea, select {
+      background: #1e293b; border: 2px solid #334155; border-radius: 8px; color: #e2e8f0;
+      padding: 10px 14px; font-size: 0.9rem; font-family: inherit; width: 100%; }
+    input[type=text]:focus, input[type=email]:focus, textarea:focus, select:focus {
+      outline: none; border-color: #38bdf8; }
+    label { font-size: 0.8rem; color: #64748b; display: block; margin-bottom: 4px; }
+    .field { flex: 1; min-width: 180px; }
+    button { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 0.9rem; font-weight: 600; transition: all 0.15s; }
+    button.primary { background: #0ea5e9; color: #fff; }
+    button.primary:hover { background: #0284c7; }
+    button.secondary { background: #1e293b; color: #94a3b8; border: 2px solid #334155; }
+    button.secondary:hover { border-color: #64748b; color: #e2e8f0; }
+    #typed-output { margin-top: 16px; padding: 12px 16px; background: #1e293b;
+      border-radius: 8px; font-family: monospace; font-size: 0.85rem; color: #4ade80;
+      min-height: 42px; word-break: break-all; }
+
+    /* ── 4. DROPDOWN + RADIO ── */
+    .controls { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+    .radio-group { display: flex; flex-direction: column; gap: 8px; }
+    .radio-group label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem;
+      color: #e2e8f0; cursor: pointer; }
+    input[type=radio], input[type=checkbox] { accent-color: #0ea5e9; width: 16px; height: 16px; cursor: pointer; }
+    select { width: 220px; cursor: pointer; }
+    #select-output { margin-top: 10px; font-size: 0.85rem; color: #a78bfa; font-family: monospace; }
+
+    /* ── 5. NAVIGATION LINKS ── */
+    .link-list { display: flex; flex-direction: column; gap: 10px; max-width: 500px; }
+    .nav-link { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+      background: #1e293b; border-radius: 8px; border: 2px solid #334155;
+      text-decoration: none; color: #e2e8f0; font-weight: 500; transition: all 0.15s; }
+    .nav-link:hover { border-color: #6366f1; color: #a5b4fc; }
+    .nav-link .badge { font-size: 0.7rem; font-weight: 600; padding: 2px 8px;
+      border-radius: 12px; background: #312e81; color: #a5b4fc; }
+
+    /* ── 6. SCROLL DEPTH MARKERS ── */
+    .depth-marker { padding: 24px; background: #1e293b; border-radius: 10px;
+      border-left: 4px solid; margin-bottom: 16px; }
+    .depth-marker h3 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+    .depth-marker p { font-size: 0.85rem; color: #64748b; }
+    .d1 { border-color: #22d3ee; }
+    .d2 { border-color: #4ade80; }
+    .d3 { border-color: #fb923c; }
+    .d4 { border-color: #f472b6; }
+    .click-here { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px;
+      padding: 8px 16px; background: #0f172a; border: 2px solid currentColor;
+      border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+      transition: background 0.15s; }
+    .click-here:hover { background: rgba(255,255,255,0.05); }
+    .click-here.hit { opacity: 0.5; }
+
+    /* ── 7. COORDINATE PROBE ── */
+    #probe-area { height: 200px; background: #1e293b; border-radius: 10px; border: 2px solid #334155;
+      position: relative; cursor: crosshair; overflow: hidden; }
+    #probe-area::before { content: 'Click anywhere in this box to test coordinates';
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #475569; font-size: 0.85rem; pointer-events: none; }
+    #probe-dot { display: none; width: 12px; height: 12px; border-radius: 50%; background: #f43f5e;
+      position: absolute; transform: translate(-50%, -50%); pointer-events: none; }
+    #probe-label { position: absolute; bottom: 10px; right: 12px; font-family: monospace;
+      font-size: 0.8rem; color: #94a3b8; }
+
+    /* ── 8. SEARCH / AUTOCOMPLETE ── */
+    .search-wrap { position: relative; max-width: 400px; }
+    #search-input { padding-right: 40px; }
+    .search-icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      color: #475569; pointer-events: none; }
+    #search-suggestions { display: none; position: absolute; top: 100%; left: 0; right: 0;
+      background: #1e293b; border: 2px solid #38bdf8; border-top: none; border-radius: 0 0 8px 8px;
+      z-index: 10; }
+    .suggestion { padding: 10px 14px; cursor: pointer; font-size: 0.9rem; color: #e2e8f0; }
+    .suggestion:hover, .suggestion.active { background: #0f172a; color: #38bdf8; }
+    #search-selected { margin-top: 12px; font-family: monospace; font-size: 0.85rem; color: #38bdf8; }
+
+    /* scroll gap */
+    .spacer { height: 120px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>tiny-browser calibration</h1>
+  <span id="status">ready</span>
+  <div id="last-action">—</div>
+</header>
+
+<!-- ── 1. CLICK TARGETS ── -->
+<section id="clicks">
+  <h2>1 · Click targets (numbered)</h2>
+  <div class="click-grid">
+    <button class="target" onclick="hit(this,'A1')">A1</button>
+    <button class="target" onclick="hit(this,'A2')">A2</button>
+    <button class="target" onclick="hit(this,'A3')">A3</button>
+    <button class="target" onclick="hit(this,'A4')">A4</button>
+    <button class="target" onclick="hit(this,'A5')">A5</button>
+    <button class="target" onclick="hit(this,'B1')">B1</button>
+    <button class="target" onclick="hit(this,'B2')">B2</button>
+    <button class="target" onclick="hit(this,'B3')">B3</button>
+    <button class="target" onclick="hit(this,'B4')">B4</button>
+    <button class="target" onclick="hit(this,'B5')">B5</button>
+  </div>
+</section>
+
+<!-- ── 2. SMALL PRECISION TARGETS ── -->
+<section id="precision">
+  <h2>2 · Precision targets (20×20 px dots)</h2>
+  <div class="small-grid">
+    <div class="dot" data-label="dot-1" onclick="hit(this,'dot-1')"></div>
+    <div class="dot" data-label="dot-2" onclick="hit(this,'dot-2')"></div>
+    <div class="dot" data-label="dot-3" onclick="hit(this,'dot-3')"></div>
+    <div class="dot" data-label="dot-4" onclick="hit(this,'dot-4')"></div>
+    <div class="dot" data-label="dot-5" onclick="hit(this,'dot-5')"></div>
+  </div>
+</section>
+
+<!-- ── 3. TYPING ── -->
+<section id="typing">
+  <h2>3 · Typing & form submission</h2>
+  <div class="form-row">
+    <div class="field">
+      <label for="name-input">Name</label>
+      <input type="text" id="name-input" placeholder="Type your name here">
+    </div>
+    <div class="field">
+      <label for="email-input">Email</label>
+      <input type="email" id="email-input" placeholder="email@example.com">
+    </div>
+  </div>
+  <div class="form-row" style="margin-top:12px">
+    <div class="field">
+      <label for="message-input">Message</label>
+      <textarea id="message-input" rows="3" placeholder="Type a longer message here..."></textarea>
+    </div>
+  </div>
+  <div class="form-row" style="margin-top:12px">
+    <button class="primary" onclick="submitForm()">Submit form</button>
+    <button class="secondary" onclick="clearForm()">Clear</button>
+  </div>
+  <div id="typed-output">—</div>
+</section>
+
+<!-- ── 4. DROPDOWN + RADIO + CHECKBOX ── -->
+<section id="controls">
+  <h2>4 · Dropdowns, radio buttons & checkboxes</h2>
+  <div class="controls">
+    <div>
+      <label>Pick a city</label>
+      <select id="city-select" onchange="log('selected: ' + this.value)">
+        <option value="">-- choose --</option>
+        <option value="Prague">Prague</option>
+        <option value="Brno">Brno</option>
+        <option value="Ostrava">Ostrava</option>
+        <option value="Plzen">Plzeň</option>
+      </select>
+      <div id="select-output">—</div>
+    </div>
+    <div class="radio-group">
+      <p style="font-size:0.8rem;color:#64748b;margin-bottom:4px">Role</p>
+      <label><input type="radio" name="role" value="CTO" onchange="log('role: CTO')"> CTO</label>
+      <label><input type="radio" name="role" value="CEO" onchange="log('role: CEO')"> CEO</label>
+      <label><input type="radio" name="role" value="CPO" onchange="log('role: CPO')"> CPO</label>
+    </div>
+    <div class="radio-group">
+      <p style="font-size:0.8rem;color:#64748b;margin-bottom:4px">Filters</p>
+      <label><input type="checkbox" id="cb-prague" onchange="log('Prague: ' + this.checked)"> Prague</label>
+      <label><input type="checkbox" id="cb-remote" onchange="log('Remote: ' + this.checked)"> Remote</label>
+      <label><input type="checkbox" id="cb-startup" onchange="log('Startup: ' + this.checked)"> Startup</label>
+    </div>
+  </div>
+</section>
+
+<!-- ── 5. AUTOCOMPLETE SEARCH ── -->
+<section id="search">
+  <h2>5 · Autocomplete / typeahead</h2>
+  <div class="search-wrap">
+    <input type="text" id="search-input" placeholder="Search cities…" autocomplete="off"
+      oninput="suggest(this.value)" onfocus="suggest(this.value)" onblur="setTimeout(()=>hideSug(),200)">
+    <span class="search-icon">⌕</span>
+    <div id="search-suggestions"></div>
+  </div>
+  <div id="search-selected">—</div>
+</section>
+
+<!-- ── 6. NAVIGATION LINKS ── -->
+<section id="navigation">
+  <h2>6 · Navigation links</h2>
+  <div class="link-list">
+    <a href="#clicks" class="nav-link" onclick="log('nav → click targets')">
+      <span>↑</span> Jump to Click targets <span class="badge">section 1</span>
+    </a>
+    <a href="#typing" class="nav-link" onclick="log('nav → typing')">
+      <span>↑</span> Jump to Typing <span class="badge">section 3</span>
+    </a>
+    <a href="#deep" class="nav-link" onclick="log('nav → deep scroll')">
+      <span>↓</span> Jump to Deep scroll area <span class="badge">section 7</span>
+    </a>
+    <a href="#probe" class="nav-link" onclick="log('nav → probe')">
+      <span>↓</span> Jump to Coordinate probe <span class="badge">section 8</span>
+    </a>
+  </div>
+</section>
+
+<!-- ── 7. SCROLL DEPTH MARKERS ── -->
+<section id="deep">
+  <h2>7 · Scroll depth — click targets at increasing depth</h2>
+
+  <div class="depth-marker d1">
+    <h3>Depth A — visible on first load</h3>
+    <p>This section is near the top. A click here requires no scrolling.</p>
+    <button class="click-here d1" onclick="hit(this,'depth-A')">✓ Click Depth A</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="depth-marker d2">
+    <h3>Depth B — requires ~1 scroll</h3>
+    <p>Scroll down once to reveal this section, then click.</p>
+    <button class="click-here d2" onclick="hit(this,'depth-B')">✓ Click Depth B</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="depth-marker d3">
+    <h3>Depth C — requires ~2 scrolls</h3>
+    <p>Scroll again. This tests whether click coordinates are viewport-relative.</p>
+    <button class="click-here d3" onclick="hit(this,'depth-C')">✓ Click Depth C</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="depth-marker d4">
+    <h3>Depth D — deep page position</h3>
+    <p>Deep in the page. Click to confirm scroll+click works end-to-end.</p>
+    <button class="click-here d4" onclick="hit(this,'depth-D')">✓ Click Depth D</button>
+  </div>
+</section>
+
+<!-- ── 8. COORDINATE PROBE ── -->
+<section id="probe">
+  <h2>8 · Coordinate probe — click anywhere in the box</h2>
+  <div id="probe-area" onclick="probeClick(event)">
+    <div id="probe-dot"></div>
+    <div id="probe-label"></div>
+  </div>
+  <p style="margin-top:10px;font-size:0.8rem;color:#475569">
+    The red dot should appear exactly where you clicked. If it's offset, DPR or coordinate scaling needs checking.
+  </p>
+</section>
+
+<div style="height:200px"></div>
+
+<script>
+  const actionEl = document.getElementById('last-action');
+  const statusEl = document.getElementById('status');
+
+  function log(msg) {
+    actionEl.textContent = msg;
+    statusEl.textContent = new Date().toLocaleTimeString();
+    console.log('[calibration]', msg);
+    // also update select-output if relevant
+    if (msg.startsWith('selected:')) {
+      document.getElementById('select-output').textContent = msg;
+    }
+  }
+
+  function hit(el, id) {
+    // toggle hit style
+    document.querySelectorAll('.target.hit, .dot.hit, .click-here.hit').forEach(e => {
+      if (e !== el) { e.classList.remove('hit'); }
+    });
+    el.classList.toggle('hit');
+    log('clicked: ' + id);
+  }
+
+  function submitForm() {
+    const name = document.getElementById('name-input').value;
+    const email = document.getElementById('email-input').value;
+    const msg = document.getElementById('message-input').value;
+    const out = `name="${name}" email="${email}" message="${msg.slice(0,40)}"`;
+    document.getElementById('typed-output').textContent = out;
+    log('form submitted → ' + out);
+  }
+
+  function clearForm() {
+    ['name-input','email-input','message-input'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('typed-output').textContent = '—';
+    log('form cleared');
+  }
+
+  const CITIES = ['Prague','Brno','Bratislava','Berlin','Budapest','Brussels',
+                  'Barcelona','Bucharest','Belgrade','Bologna'];
+  function suggest(val) {
+    const box = document.getElementById('search-suggestions');
+    if (!val) { box.style.display = 'none'; return; }
+    const matches = CITIES.filter(c => c.toLowerCase().startsWith(val.toLowerCase()));
+    if (!matches.length) { box.style.display = 'none'; return; }
+    box.innerHTML = matches.map(c =>
+      `<div class="suggestion" onclick="selectCity('${c}')">${c}</div>`
+    ).join('');
+    box.style.display = 'block';
+  }
+  function hideSug() {
+    document.getElementById('search-suggestions').style.display = 'none';
+  }
+  function selectCity(city) {
+    document.getElementById('search-input').value = city;
+    hideSug();
+    document.getElementById('search-selected').textContent = 'selected: ' + city;
+    log('autocomplete selected: ' + city);
+  }
+
+  function probeClick(e) {
+    const area = document.getElementById('probe-area');
+    const rect = area.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+    const dot = document.getElementById('probe-dot');
+    dot.style.display = 'block';
+    dot.style.left = x + 'px';
+    dot.style.top = y + 'px';
+    document.getElementById('probe-label').textContent =
+      `click at (${Math.round(e.clientX)}, ${Math.round(e.clientY)}) → box-local (${x}, ${y})`;
+    log(`probe: clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`);
+  }
+</script>
+</body>
+</html>
