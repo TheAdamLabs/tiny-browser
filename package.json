@@ -1,0 +1,22 @@
+{
+  "name": "tiny-browser",
+  "version": "0.2.0",
+  "description": "HTTP REST bridge + Chrome extension for browser control from Cursor AI — no MCP required",
+  "type": "module",
+  "bin": {
+    "tiny-browser": "./bin/tiny-browser.mjs"
+  },
+  "scripts": {
+    "start": "node bin/tiny-browser.mjs"
+  },
+  "dependencies": {
+    "sharp": "^0.34.1",
+    "ws": "^8.18.0"
+  },
+  "files": [
+    "bin/",
+    "extension/",
+    "SKILL.md",
+    "README.md"
+  ]
+}
