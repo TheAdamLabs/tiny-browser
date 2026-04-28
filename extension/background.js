@@ -262,19 +262,11 @@ const jitter = (base, range) => base + Math.random() * range;
  * better for sites that check for bot-like instant clicks.
  */
 async function humanClick(target, x, y, { precise = false } = {}) {
-  if (!precise) {
-    const offsetX = Math.round((Math.random() - 0.5) * 8);
-    const offsetY = Math.round((Math.random() - 0.5) * 8);
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved', x: x + offsetX, y: y + offsetY, modifiers: 0,
-    });
-    await sleep(jitter(20, 20));
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved', x, y, modifiers: 0,
-    });
-    await sleep(jitter(20, 20));
-  }
-
+  // mouseMoved pre-click jitter was removed: Input.dispatchMouseEvent(mouseMoved)
+  // suffers a multi-stage lazy-init penalty (~0.9-5 s per call) in Chrome's CDP
+  // input pipeline that makes every non-precise click 3-5× slower with zero
+  // practical benefit for a local AI agent using CDP.
+  // If hover-triggered UI is needed, dispatch an explicit mouseMoved before calling click.
   const base = { x, y, button: 'left', clickCount: 1, modifiers: 0 };
   await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
     { ...base, type: 'mousePressed' });
@@ -577,7 +569,8 @@ async function cmdReadPage(params = {}) {
     expression: `(() => {
       const links = Array.from(document.querySelectorAll('a[href]'))
         .map(a => ({ text: a.innerText.trim().slice(0, 80), href: a.href }))
-        .filter(l => l.text && l.href && !l.href.startsWith('javascript:'));
+        .filter(l => l.text && l.href && !l.href.startsWith('javascript:'))
+        .slice(0, 100); // cap to avoid JSON truncation on link-heavy pages (e.g. Wikipedia)
       return JSON.stringify({
         title: document.title,
         url: location.href,

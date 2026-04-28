@@ -54,16 +54,16 @@ const COMMANDS = [
   },
   {
     name: 'click',
-    params: '{"x":N,"y":N[,"precise":bool,"tabId":N]}',
+    params: '{"x":N,"y":N[,"precise":bool,"tabId":N]}',  // precise is now a no-op (jitter was removed)
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Click at viewport coordinates (getBoundingClientRect values, scroll-adjusted). Use grid labels from screenshot — they represent page coordinates which may differ after scrolling. Set precise:true to skip human jitter for pixel-accurate clicks (~200ms faster).',
+    desc: 'Click at viewport coordinates (getBoundingClientRect values, scroll-adjusted). Use grid labels from screenshot — they represent page coordinates which may differ after scrolling.',
     auto_screenshot: true,
   },
   {
     name: 'click_element',
     params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"precise":bool,"tabId":N]}',
     returns: '{"found":true,"x":N,"y":N,"tag":"BUTTON","text":"...","screenshot":"..."}',
-    desc: 'Find an interactive element by text or CSS selector and click its centre. Scrolls into view automatically. Falls back to shadow DOM if light DOM returns nothing. Use x_max/within_selector to disambiguate duplicate text. Set precise:true to skip human jitter (~200ms faster).',
+    desc: 'Find an interactive element by text or CSS selector and click its centre. Scrolls into view automatically. Falls back to shadow DOM if light DOM returns nothing. Use x_max/within_selector to disambiguate duplicate text.',
     auto_screenshot: true,
   },
   {
@@ -105,7 +105,7 @@ const COMMANDS = [
     name: 'read_page',
     params: '[{"tabId":N}]',
     returns: '{"title":"...","url":"...","text":"...","links":[{"text":"...","href":"..."}]}',
-    desc: 'Return page title, first 4000 chars of body text, and all anchor links with hrefs.',
+    desc: 'Return page title, first 4000 chars of body text, and up to 100 anchor links with hrefs.',
     auto_screenshot: false,
   },
   {
