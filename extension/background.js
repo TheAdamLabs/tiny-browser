@@ -251,22 +251,34 @@ const jitter = (base, range) => base + Math.random() * range;
 // Human-like input primitives
 // ---------------------------------------------------------------------------
 
-async function humanClick(target, x, y) {
-  const offsetX = Math.round((Math.random() - 0.5) * 8);
-  const offsetY = Math.round((Math.random() - 0.5) * 8);
-  await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-    type: 'mouseMoved', x: x + offsetX, y: y + offsetY, modifiers: 0,
-  });
-  await sleep(jitter(20, 20));
-  await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-    type: 'mouseMoved', x, y, modifiers: 0,
-  });
-  await sleep(jitter(20, 20));
+/**
+ * Simulate a mouse click at (x, y).
+ *
+ * precise:true — skip jitter moves and long press-hold delay (~200ms saved,
+ * exact pixel targeting).  Use for data tables, coordinate grids, or any
+ * scenario where a few pixels matter.
+ *
+ * Default (precise:false) — human-like jitter + natural press-hold timing,
+ * better for sites that check for bot-like instant clicks.
+ */
+async function humanClick(target, x, y, { precise = false } = {}) {
+  if (!precise) {
+    const offsetX = Math.round((Math.random() - 0.5) * 8);
+    const offsetY = Math.round((Math.random() - 0.5) * 8);
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x: x + offsetX, y: y + offsetY, modifiers: 0,
+    });
+    await sleep(jitter(20, 20));
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x, y, modifiers: 0,
+    });
+    await sleep(jitter(20, 20));
+  }
 
   const base = { x, y, button: 'left', clickCount: 1, modifiers: 0 };
   await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
     { ...base, type: 'mousePressed' });
-  await sleep(jitter(60, 80));
+  await sleep(precise ? 10 : jitter(60, 80));
   await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
     { ...base, type: 'mouseReleased' });
 }
@@ -350,7 +362,8 @@ function buildFindExpr(selector, text, exact = false, opts = {}) {
 
   const filterChain = `
       .filter(el => {
-        const t = (el.innerText ?? el.value ?? el.getAttribute('aria-label') ?? '').trim().toLowerCase();
+        // Use || not ?? so empty innerText (e.g. input[type=submit]) falls through to value/aria-label
+        const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().toLowerCase();
         return ${match};
       })
       .filter(el => {
@@ -409,28 +422,41 @@ async function cmdScreenshot(params = {}) {
       setTimeout(() => reject(new Error('screenshot timed out')), timeoutMs)),
   ]);
   if (!res?.data) throw new Error('captureScreenshot returned no data');
-  return { base64: res.data };
+  // Include DPR so the server can label the coordinate grid in CSS pixels.
+  // Page.captureScreenshot returns an image at physical resolution (DPR × CSS size),
+  // but Input.dispatchMouseEvent uses CSS pixels — labels must match.
+  const { result: dprResult } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+    expression: 'window.devicePixelRatio', returnByValue: true,
+  });
+  return { base64: res.data, dpr: dprResult?.value ?? 1 };
 }
 
-async function cmdClick({ x, y, tabId } = {}) {
+async function cmdClick({ x, y, tabId, precise = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
-  await humanClick(target, x, y);
+  await humanClick(target, x, y, { precise });
   return { ok: true };
 }
 
-async function cmdType({ text, x, y, tabId } = {}) {
+/**
+ * Type text into the active (or clicked) element.
+ *
+ * fast:true — skip the 50-120 ms per-keystroke delay and pre-type click
+ * settle sleeps, reducing a 20-char string from ~2 s to <100 ms.  Trades
+ * human-likeness for speed; suitable for most automated workflows.
+ */
+async function cmdType({ text, x, y, tabId, fast = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   if (x != null && y != null) {
     await humanClick(target, x, y);
-    await sleep(400);
+    if (!fast) await sleep(400);
     await cdpFocus(target, x, y);
-    await sleep(100);
+    if (!fast) await sleep(100);
   }
   for (const char of text) {
     await humanTypeKey(target, char);
-    await sleep(jitter(50, 70));
+    if (!fast) await sleep(jitter(50, 70));
   }
   return { ok: true };
 }
@@ -455,14 +481,17 @@ async function cmdNavigate({ url, tabId, timeout = 15000 } = {}) {
   // Wait for the navigation to commit and the page to reach readyState=complete.
   // Without this the auto-screenshot (and any immediate follow-up command) sees
   // the previous page because chrome.tabs.update returns before the load begins.
+  // 50ms initial sleep: enough for the browser to register the navigation before
+  // the first poll, while avoiding the 250ms waste of the old 300ms sleep on fast
+  // local or cached pages.
   const deadline = Date.now() + timeout;
-  await sleep(300); // give the browser a moment to start the navigation
+  await sleep(50);
   while (Date.now() < deadline) {
     try {
       const updatedTab = await chrome.tabs.get(tab.id);
       if (updatedTab.status === 'complete') return { ok: true };
     } catch { break; }
-    await sleep(300);
+    await sleep(150);
   }
   return { ok: true };
 }
@@ -480,16 +509,17 @@ async function cmdListTabs() {
 async function cmdNewTab({ url, timeout = 15000 } = {}) {
   const resolved = url ?? 'about:blank';
   const tab = await chrome.tabs.create({ url: resolved, active: true });
-  // Poll for load completion the same way cmdNavigate does
+  // Poll for load completion the same way cmdNavigate does (50ms initial sleep,
+  // 150ms poll interval — matches the reduced overhead in cmdNavigate).
   if (resolved !== 'about:blank') {
     const deadline = Date.now() + timeout;
-    await sleep(300);
+    await sleep(50);
     while (Date.now() < deadline) {
       try {
         const updatedTab = await chrome.tabs.get(tab.id);
         if (updatedTab.status === 'complete') break;
       } catch { break; }
-      await sleep(300);
+      await sleep(150);
     }
   }
   return { index: tab.index, tabId: tab.id, url: resolved };
@@ -627,7 +657,7 @@ async function cmdFindElement({ selector, text, exact = false, x_max, within_sel
  *
  * Scrolls the element into view first so off-screen elements are reachable.
  */
-async function cmdClickElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, tabId } = {}) {
+async function cmdClickElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, tabId, precise = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   const opts = { x_max, within_selector, nth, visible_only };
@@ -650,7 +680,7 @@ async function cmdClickElement({ selector, text, exact = false, x_max, within_se
   });
   if (!result.value) return { found: false };
   const { x, y, tag, text: elText } = JSON.parse(result.value);
-  await humanClick(target, x, y);
+  await humanClick(target, x, y, { precise });
   return { found: true, x, y, tag, text: elText };
 }
 

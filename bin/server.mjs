@@ -35,7 +35,16 @@ const SKILL_DEST = path.join(os.homedir(), '.cursor', 'skills', 'browser-control
 const MAX_WIDTH = 1024;
 const GRID = 100;
 
-async function makeScreenshot(base64) {
+/**
+ * Overlay a coordinate grid on a screenshot and optionally downscale.
+ *
+ * dpr — device pixel ratio of the source tab (default 1).
+ * Page.captureScreenshot returns an image at physical resolution (DPR × CSS viewport).
+ * Input.dispatchMouseEvent uses CSS pixels, so grid lines must be spaced every
+ * GRID *CSS* pixels (= GRID * dpr physical pixels) and labelled with CSS values.
+ * This ensures grid labels match click coordinates exactly on HiDPI displays.
+ */
+async function makeScreenshot(base64, dpr = 1) {
   const buf = Buffer.from(base64, 'base64');
   const { width: w, height: h } = await sharp(buf).metadata();
 
@@ -55,19 +64,25 @@ async function makeScreenshot(base64) {
     ].join('');
   }
 
+  // Step size in physical pixels = GRID CSS pixels × DPR
+  const step = Math.round(GRID * dpr);
   const parts = [];
-  for (let x = 0; x <= w; x += GRID) {
+  for (let x = 0; x <= w; x += step) {
     parts.push(`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="red" stroke-width="${Math.round(scale)}" opacity="0.4"/>`);
-    if (x > 0) parts.push(label(x + pad, lh + pad, `${x}`));
+    if (x > 0) parts.push(label(x + pad, lh + pad, `${Math.round(x / dpr)}`));
   }
-  for (let y = GRID; y <= h; y += GRID) {
+  for (let y = step; y <= h; y += step) {
     parts.push(`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="red" stroke-width="${Math.round(scale)}" opacity="0.4"/>`);
-    parts.push(label(pad, y - pad, `${y}`));
+    parts.push(label(pad, y - pad, `${Math.round(y / dpr)}`));
   }
   const svg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${parts.join('')}</svg>`
   );
 
+  // Composite grid over the full-resolution image first, then downscale.
+  // Note: sharp applies resize before composite internally, so the two-step
+  // approach is required — chaining .composite().resize() would fail because
+  // the SVG overlay (full size) would be larger than the already-resized base.
   const composited = await sharp(buf).composite([{ input: svg }]).toBuffer();
   return w > MAX_WIDTH
     ? sharp(composited).resize({ width: MAX_WIDTH, withoutEnlargement: true }).toBuffer()
@@ -117,6 +132,26 @@ const AUTO_SCREENSHOT = new Set([
   'click_element', 'wait', 'wait_for_element',
 ]);
 
+// Per-command settle time (ms) between command completion and auto-screenshot.
+// Tuned to each command's typical DOM side-effect latency:
+//   navigate/new_tab   — already polled to readyState=complete; 150ms covers final paint.
+//   wait/wait_for_el   — element is already confirmed present; minimal settle needed.
+//   click/click_el     — synchronous click; allow one repaint + CSS transition.
+//   scroll             — wheel events settle quickly; some lazy-load needs a moment.
+//   key_press          — keystroke fires synchronously; short settle for inline validation.
+//   type               — last keystroke has fired; UI update is fast.
+const SETTLE_MS = {
+  navigate:         150,
+  new_tab:          150,
+  wait:              50,
+  wait_for_element:  50,
+  click:            200,
+  click_element:    200,
+  scroll:           250,
+  key_press:        150,
+  type:             150,
+};
+
 const server = http.createServer(async (req, res) => {
   const reply = (status, data) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -147,8 +182,8 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (route === 'screenshot') {
-      const { base64 } = await sendToExtension('screenshot', params);
-      const png = await makeScreenshot(base64);
+      const { base64, dpr } = await sendToExtension('screenshot', params);
+      const png = await makeScreenshot(base64, dpr);
       // Use a tab-specific path when tabId is provided so parallel screenshots
       // from different tabs don't overwrite each other.
       const filePath = params.tabId != null
@@ -162,14 +197,15 @@ const server = http.createServer(async (req, res) => {
       const result = await sendToExtension(route, params);
       if (AUTO_SCREENSHOT.has(route)) {
         try {
-          // Wait for the page to settle before capturing.
-          // navigate/new_tab: the command already waited for tab.status=complete
-          // internally, so just a short settle is enough for final paint.
-          // All others: 400 ms covers CSS transitions, dropdown opens, etc.
-          const settleMs = (route === 'navigate' || route === 'new_tab') ? 150 : 400;
+          // Per-command settle delay before capturing the auto-screenshot.
+          // navigate/new_tab already waited for tab.status=complete internally;
+          // only a short final-paint settle is needed.  Interactive commands get
+          // tuned values that cover their typical DOM side-effects without
+          // over-waiting.
+          const settleMs = SETTLE_MS[route] ?? 250;
           await new Promise(r => setTimeout(r, settleMs));
-          const { base64 } = await sendToExtension('screenshot', params); // forwards tabId
-          const png = await makeScreenshot(base64);
+          const { base64, dpr } = await sendToExtension('screenshot', params); // forwards tabId
+          const png = await makeScreenshot(base64, dpr);
           const filePath = params.tabId != null
             ? path.join(os.tmpdir(), `tiny-browser-screenshot-${params.tabId}.png`)
             : SCREENSHOT_PATH;
