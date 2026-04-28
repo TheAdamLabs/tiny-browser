@@ -292,6 +292,21 @@ async function cdpFocus(target, x, y) {
 
 /** Dispatch a single character as rawKeyDown + char + keyUp. */
 async function humanTypeKey(target, char) {
+  // \n must be dispatched as a real Enter keypress (keyCode 13), not as charCode 10.
+  // Textareas and rich editors ignore char events with charCode 10.
+  if (char === '\n') {
+    const ev = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...ev, type: 'keyDown', text: '\r' });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...ev, type: 'keyUp' });
+    return;
+  }
+  // \t as a real Tab keypress
+  if (char === '\t') {
+    const ev = { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 };
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...ev, type: 'keyDown' });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...ev, type: 'keyUp' });
+    return;
+  }
   const charCode = char.charCodeAt(0);
   const base = {
     key: char, text: char, unmodifiedText: char,
@@ -332,20 +347,24 @@ function buildFindExpr(selector, text, exact = false, opts = {}) {
     }`;
 
   if (selector) {
-    // Selector path: try regular DOM first, then shadow DOM
+    // Selector path: try regular DOM first, then shadow DOM.
+    // Wrap querySelector in try/catch: an invalid composite selector (e.g. unquoted brackets
+    // like input[name=foo[bar]]) throws DOMException:SyntaxError. Fall through to text-match
+    // on error rather than silently returning null.
     return `(() => {
       ${collectFn}
-      // Try light DOM first for speed
-      let el = ${within_selector
-        ? `document.querySelector(${JSON.stringify(within_selector)})?.querySelector(${JSON.stringify(selector)})`
-        : `document.querySelector(${JSON.stringify(selector)})`};
-      // Fall back to full shadow-piercing search
-      if (!el) {
-        const scope = ${within_selector
-          ? `document.querySelector(${JSON.stringify(within_selector)}) ?? document`
-          : 'document'};
-        el = collectAll(scope, ${JSON.stringify(selector)})[${nth}] ?? null;
-      }
+      let el = null;
+      try {
+        el = ${within_selector
+          ? `document.querySelector(${JSON.stringify(within_selector)})?.querySelector(${JSON.stringify(selector)})`
+          : `document.querySelector(${JSON.stringify(selector)})`};
+        if (!el) {
+          const scope = ${within_selector
+            ? `document.querySelector(${JSON.stringify(within_selector)}) ?? document`
+            : 'document'};
+          el = collectAll(scope, ${JSON.stringify(selector)})[${nth}] ?? null;
+        }
+      } catch (_) { /* invalid selector — el stays null */ }
       return el;
     })()`;
   }
@@ -461,8 +480,28 @@ async function cmdScroll({ deltaX = 0, deltaY = 0, tabId } = {}) {
   // mouseWheel has the same ~25s first-use Input pipeline lazy-init penalty as mouseMoved.
   // behavior:'instant' overrides CSS scroll-behavior:smooth so the scroll is atomic and
   // the auto-screenshot always captures the final position, not an animation midpoint.
+  //
+  // Fallback: SPAs (LinkedIn, Gmail, etc.) put content in an inner div[overflow:auto] rather
+  // than scrolling window. If window.scrollY/X doesn't change after the scroll, walk up from
+  // the viewport center to find the deepest scrollable container and scroll that instead.
   await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-    expression: `window.scrollBy({left:${deltaX},top:${deltaY},behavior:'instant'})`,
+    expression: `(function() {
+      const py = window.scrollY, px = window.scrollX;
+      window.scrollBy({left:${deltaX},top:${deltaY},behavior:'instant'});
+      if (window.scrollY === py && window.scrollX === px) {
+        let el = document.elementFromPoint(window.innerWidth/2, window.innerHeight/2);
+        while (el && el !== document.documentElement) {
+          const s = getComputedStyle(el);
+          const oy = s.overflowY, ox = s.overflowX;
+          if ((${deltaY} !== 0 && (oy==='auto'||oy==='scroll') && el.scrollHeight > el.clientHeight) ||
+              (${deltaX} !== 0 && (ox==='auto'||ox==='scroll') && el.scrollWidth  > el.clientWidth)) {
+            el.scrollBy({left:${deltaX},top:${deltaY},behavior:'instant'});
+            break;
+          }
+          el = el.parentElement;
+        }
+      }
+    })()`,
   });
   return { ok: true };
 }

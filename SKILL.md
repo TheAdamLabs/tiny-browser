@@ -189,3 +189,10 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **Fast typing**: default `type` adds realistic delays (~85 ms/char); add `"fast":true` for 10× faster input on long strings
 - **scroll is instant**: `scroll` uses `window.scrollBy({behavior:'instant'})` — it overrides CSS `scroll-behavior:smooth` and completes in ~0.6s; scrollY is at the final position immediately after the call returns
 - **scroll takes `deltaY`/`deltaX`**: positive deltaY scrolls down, negative scrolls up; no `x`/`y` center params needed
+- **scroll on SPAs (LinkedIn, Gmail, etc.)**: if the page uses an inner scroll container, `scroll` auto-detects it by checking whether `window.scrollY` changed; if not, it finds the deepest `overflow:auto/scroll` ancestor at the viewport center and scrolls that instead — no special params needed
+- **newlines in `type`**: `\n` in the text string dispatches a real Enter keypress (keyCode 13); works in textareas and GitHub/Notion editors; `\t` dispatches Tab
+- **CSS selector attribute values with brackets**: `input[name=foo[bar]]` is invalid CSS — always quote attribute values: `input[name="foo[bar]"]`. Invalid selectors now silently fall through to text-match rather than crashing
+- **multi-step data pipelines**: use Python (`python3 - <<'PYEOF'`) not bash arrays when iterating over dynamic data with spaces — bash subshells break array accumulation and spaces break word-splitting
+- **stale tabs**: tabs opened before a server restart show ERR_FILE_NOT_FOUND; always open fresh tabs with `new_tab` at the start of a workflow
+- **UI-first navigation**: always click through the visible UI (Locations → type → autocomplete → Show results) rather than guessing URL parameters (geoUrn, etc.) — parameter values are opaque and wrong guesses waste time
+- **`read_page` on active tab only**: `read_page` works best on the active tab; for background tabs, `switch_tab` first, then call `read_page`

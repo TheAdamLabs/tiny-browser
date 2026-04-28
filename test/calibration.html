@@ -174,8 +174,10 @@
   <div class="form-row" style="margin-top:12px">
     <button class="primary" onclick="submitForm()">Submit form</button>
     <button class="secondary" onclick="clearForm()">Clear</button>
+    <button class="secondary" onclick="countLines()">Count lines</button>
   </div>
   <div id="typed-output">—</div>
+  <div id="line-count" style="margin-top:8px;font-size:0.8rem;color:#64748b;font-family:monospace;"></div>
 </section>
 
 <!-- ── 4. DROPDOWN + RADIO + CHECKBOX ── -->
@@ -325,7 +327,16 @@
       document.getElementById(id).value = '';
     });
     document.getElementById('typed-output').textContent = '—';
+    document.getElementById('line-count').textContent = '';
     log('form cleared');
+  }
+
+  function countLines() {
+    const msg = document.getElementById('message-input').value;
+    const lines = msg.split('\n');
+    const el = document.getElementById('line-count');
+    el.textContent = `message-input: ${lines.length} line(s), ${msg.length} chars. Lines: ${JSON.stringify(lines.map(l=>l.slice(0,30)))}`;
+    log('counted lines: ' + lines.length);
   }
 
   const CITIES = ['Prague','Brno','Bratislava','Berlin','Budapest','Brussels',
