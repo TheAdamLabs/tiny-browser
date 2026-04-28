@@ -147,7 +147,7 @@ const SETTLE_MS = {
   wait_for_element:  50,
   click:            200,
   click_element:    200,
-  scroll:           250,
+  scroll:            60,  // scrollBy({behavior:'instant'}) is synchronous; 60ms covers repaint
   key_press:        150,
   type:             150,
 };

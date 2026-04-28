@@ -89,6 +89,7 @@ For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-
 | `type` (default) | ~85ms/char + screenshot |
 | `type` with `fast:true` | ~0.6s flat regardless of length |
 | `screenshot` | ~0.5s |
+| `scroll` | ~0.6s (JS `scrollBy` with `behavior:instant` — overrides CSS smooth scroll) |
 | `query` / `find_element` | ~0.05–0.1s |
 
 ## Project structure

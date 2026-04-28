@@ -187,3 +187,5 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **query returns null**: `query` returns `{result:null}` when the expression evaluates to `undefined` (e.g. missing selector via optional chaining) — check for null before using the result
 - **read_page link cap**: `read_page` returns up to 100 links; use `query` with a custom expression for more
 - **Fast typing**: default `type` adds realistic delays (~85 ms/char); add `"fast":true` for 10× faster input on long strings
+- **scroll is instant**: `scroll` uses `window.scrollBy({behavior:'instant'})` — it overrides CSS `scroll-behavior:smooth` and completes in ~0.6s; scrollY is at the final position immediately after the call returns
+- **scroll takes `deltaY`/`deltaX`**: positive deltaY scrolls down, negative scrolls up; no `x`/`y` center params needed

@@ -453,17 +453,16 @@ async function cmdType({ text, x, y, tabId, fast = false } = {}) {
   return { ok: true };
 }
 
-async function cmdScroll({ deltaX = 0, deltaY = 0, x = 400, y = 300, tabId } = {}) {
+async function cmdScroll({ deltaX = 0, deltaY = 0, tabId } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
-  const STEPS = 5;
-  for (let i = 0; i < STEPS; i++) {
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseWheel', x, y,
-      deltaX: deltaX / STEPS, deltaY: deltaY / STEPS, modifiers: 0,
-    });
-    await sleep(jitter(30, 20));
-  }
+  // Use window.scrollBy via Runtime.evaluate instead of Input.dispatchMouseEvent(mouseWheel).
+  // mouseWheel has the same ~25s first-use Input pipeline lazy-init penalty as mouseMoved.
+  // behavior:'instant' overrides CSS scroll-behavior:smooth so the scroll is atomic and
+  // the auto-screenshot always captures the final position, not an animation midpoint.
+  await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+    expression: `window.scrollBy({left:${deltaX},top:${deltaY},behavior:'instant'})`,
+  });
   return { ok: true };
 }
 

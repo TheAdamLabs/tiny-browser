@@ -82,9 +82,9 @@ const COMMANDS = [
   },
   {
     name: 'scroll',
-    params: '{"deltaY":N[,"deltaX":N,"x":N,"y":N,"tabId":N]}',
+    params: '{"deltaY":N[,"deltaX":N,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Scroll the page. Positive deltaY = down. Defaults to scrolling near centre of viewport.',
+    desc: 'Scroll the page. Positive deltaY = down, negative = up.',
     auto_screenshot: true,
   },
   {
