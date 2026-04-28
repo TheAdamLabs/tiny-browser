@@ -61,6 +61,11 @@ tiny-browser key_press '{"key":"SelectAll"}'
 tiny-browser type '{"text":"new@email.com"}'
 ```
 
+**Type a long string fast** — skip per-keystroke delays (~10× faster for strings > 10 chars)
+```bash
+tiny-browser type '{"text":"long paragraph or a search query here","fast":true}'
+```
+
 **Navigate to SPA — wait for interactive content**
 ```bash
 # navigate waits for readyState=complete internally. SPAs may hydrate later:
@@ -88,13 +93,15 @@ tiny-browser click_element '{"text":"Subscribe","exact":true,"x_max":400}'
 # or: "within_selector":"section.main-card"  |  "nth":0  |  "visible_only":true
 ```
 
-**Follow a link reliably**
+**Follow a link reliably** — `read_page` returns up to 100 links; for link-heavy pages use `query` to extract more
 ```bash
 tiny-browser read_page | python3 -c "
 import json,sys
 links = json.load(sys.stdin)['links']
 print(next(l['href'] for l in links if 'Report' in l['text']))
 "
+# For more than 100 links:
+tiny-browser query '{"expression":"Array.from(document.querySelectorAll(\"a[href]\")).map(a=>({text:a.innerText.trim().slice(0,80),href:a.href})).filter(l=>l.text).slice(0,200)"}'
 ```
 
 **Extract structured data — discover selector first**
@@ -167,7 +174,7 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **Pre-filled inputs**: `click_element` to focus → `SelectAll` → `type` new value
 - **Shadow DOM**: `find_element`/`click_element` automatically fall back to shadow DOM search; for manual inspection use `query` with `el.shadowRoot`
 - **Duplicate elements**: same button text in header and sidebar — scope with `x_max`, `within_selector`, or `nth`
-- **Click coordinates are viewport-relative**: screenshot grid labels = page-offset coords, which diverge after scrolling — prefer `click_element` over reading grid coords directly
+- **Click coordinates are viewport-relative**: screenshot grid labels = CSS pixel coords (DPR-corrected) — use them directly as click coordinates
 - **React inputs on background tabs**: CDP `type` bypasses synthetic events — use `?q=` URL params or `switch_tab` to activate first
 - **enable_network order**: call after `navigate`, not before — early call can attach to a `chrome://` tab
 - **New tabs from links**: after a `target="_blank"` click, use `list_tabs` → `switch_tab` to follow it
@@ -177,3 +184,6 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **exact:true**: use when multiple elements share the same word (e.g. "Book" vs "Book appointment")
 - **`bash &` warning**: `zsh: nice(5) failed: operation not permitted` is a harmless sandbox restriction
 - **Slow background tabs**: screenshot default timeout 20s — pass `{"timeout_ms":30000}` if it times out
+- **query returns null**: `query` returns `{result:null}` when the expression evaluates to `undefined` (e.g. missing selector via optional chaining) — check for null before using the result
+- **read_page link cap**: `read_page` returns up to 100 links; use `query` with a custom expression for more
+- **Fast typing**: default `type` adds realistic delays (~85 ms/char); add `"fast":true` for 10× faster input on long strings

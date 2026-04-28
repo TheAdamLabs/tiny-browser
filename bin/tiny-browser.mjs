@@ -54,14 +54,14 @@ const COMMANDS = [
   },
   {
     name: 'click',
-    params: '{"x":N,"y":N[,"precise":bool,"tabId":N]}',  // precise is now a no-op (jitter was removed)
+    params: '{"x":N,"y":N[,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
     desc: 'Click at viewport coordinates (getBoundingClientRect values, scroll-adjusted). Use grid labels from screenshot — they represent page coordinates which may differ after scrolling.',
     auto_screenshot: true,
   },
   {
     name: 'click_element',
-    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"precise":bool,"tabId":N]}',
+    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"tabId":N]}',
     returns: '{"found":true,"x":N,"y":N,"tag":"BUTTON","text":"...","screenshot":"..."}',
     desc: 'Find an interactive element by text or CSS selector and click its centre. Scrolls into view automatically. Falls back to shadow DOM if light DOM returns nothing. Use x_max/within_selector to disambiguate duplicate text.',
     auto_screenshot: true,

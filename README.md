@@ -76,7 +76,20 @@ tiny-browser query '{"expression":"document.title"}'
 
 Action commands (`click`, `navigate`, `click_element`, etc.) automatically include a `"screenshot"` field in their response — the AI can read it immediately without a separate screenshot call.
 
+Screenshots overlay a DPR-corrected coordinate grid in CSS pixels — use the red grid labels as click coordinates directly.
+
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
+
+### Performance notes
+
+| Command | Typical time |
+|---|---|
+| `navigate` | ~1.5s (waits for `readyState=complete` + screenshot) |
+| `click` / `click_element` | ~0.7s (consistent — no jitter overhead) |
+| `type` (default) | ~85ms/char + screenshot |
+| `type` with `fast:true` | ~0.6s flat regardless of length |
+| `screenshot` | ~0.5s |
+| `query` / `find_element` | ~0.05–0.1s |
 
 ## Project structure
 
