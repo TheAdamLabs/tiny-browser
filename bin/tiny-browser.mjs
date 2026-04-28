@@ -125,9 +125,9 @@ const COMMANDS = [
   {
     name: 'new_tab',
     params: '[{"url":"https://..."}]',
-    returns: '{"index":N,"tabId":N,"url":"..."}',
-    desc: 'Open a new tab. Save tabId — use it for all targeted commands. Navigation is async; always follow with navigate + wait before querying.',
-    auto_screenshot: false,
+    returns: '{"index":N,"tabId":N,"url":"...","screenshot":"..."}',
+    desc: 'Open a new tab. Save tabId — use it for all targeted commands. Response includes auto-screenshot.',
+    auto_screenshot: true,
   },
   {
     name: 'switch_tab',

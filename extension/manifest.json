@@ -3,7 +3,7 @@
   "name": "Tiny Browser",
   "version": "0.2.0",
   "description": "Browser actuator for Cursor AI — screenshot, click, type, scroll, navigate",
-  "permissions": ["activeTab", "scripting", "tabs", "alarms", "debugger"],
+  "permissions": ["activeTab", "tabs", "alarms", "debugger"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",
@@ -15,9 +15,5 @@
   "action": {
     "default_title": "Tiny Browser MCP",
     "default_popup": "popup.html"
-  },
-  "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png"
   }
 }

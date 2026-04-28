@@ -21,7 +21,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-const PORT = 7331;
+const PORT = Number(process.env.TINY_BROWSER_PORT ?? 7331);
 const SCREENSHOT_PATH = path.join(os.tmpdir(), 'tiny-browser-screenshot.png');
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
@@ -135,7 +135,13 @@ const server = http.createServer(async (req, res) => {
 
   let body = '';
   for await (const chunk of req) body += chunk;
-  const params = body ? JSON.parse(body) : {};
+
+  let params;
+  try {
+    params = body ? JSON.parse(body) : {};
+  } catch {
+    return reply(400, { error: 'Invalid JSON body' });
+  }
 
   const route = (req.url ?? '/').slice(1);
 

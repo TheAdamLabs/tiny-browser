@@ -275,7 +275,7 @@ async function humanClick(target, x, y) {
 async function cdpFocus(target, x, y) {
   try {
     await chrome.debugger.sendCommand(target, 'DOM.enable');
-    const { root } = await chrome.debugger.sendCommand(target, 'DOM.getDocument', { depth: 0 });
+    await chrome.debugger.sendCommand(target, 'DOM.getDocument', { depth: 0 });
     const { nodeId } = await chrome.debugger.sendCommand(target, 'DOM.getNodeForLocation', {
       x: Math.round(x), y: Math.round(y),
       includeUserAgentShadowDOM: false,

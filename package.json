@@ -7,7 +7,9 @@
     "tiny-browser": "./bin/tiny-browser.mjs"
   },
   "scripts": {
-    "start": "node bin/tiny-browser.mjs"
+    "start": "node bin/tiny-browser.mjs",
+    "test": "node --test test/server.test.mjs",
+    "lint": "eslint bin/*.mjs extension/*.js"
   },
   "dependencies": {
     "sharp": "^0.34.1",
@@ -18,5 +20,10 @@
     "extension/",
     "SKILL.md",
     "README.md"
-  ]
+  ],
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.2.1",
+    "globals": "^17.5.0"
+  }
 }
