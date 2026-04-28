@@ -559,7 +559,11 @@ async function cmdQuery({ expression, tabId } = {}) {
     returnByValue: true,
   });
   if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? 'JS error');
-  return { result: JSON.parse(result.value) };
+  // result.value is undefined when the expression evaluates to undefined (e.g. optional chaining
+  // on a missing element). JSON.parse(undefined) would throw "undefined is not valid JSON".
+  // Use result.value ?? null as the raw string; 'null' parses to JSON null.
+  const raw = result.value ?? null;
+  return { result: raw === null ? null : JSON.parse(raw) };
 }
 
 async function cmdReadPage(params = {}) {
