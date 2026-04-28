@@ -79,14 +79,13 @@ async function makeScreenshot(base64, dpr = 1) {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${parts.join('')}</svg>`
   );
 
-  // Composite grid over the full-resolution image first, then downscale.
-  // Note: sharp applies resize before composite internally, so the two-step
-  // approach is required — chaining .composite().resize() would fail because
-  // the SVG overlay (full size) would be larger than the already-resized base.
-  const composited = await sharp(buf).composite([{ input: svg }]).toBuffer();
+  // Composite grid at full resolution then optionally downscale in one pipeline.
+  // .composite() runs before .resize() in chain order, so the SVG is always the
+  // same dimensions as the base image when it is overlaid.
+  const pipeline = sharp(buf).composite([{ input: svg }]);
   return w > MAX_WIDTH
-    ? sharp(composited).resize({ width: MAX_WIDTH, withoutEnlargement: true }).toBuffer()
-    : composited;
+    ? pipeline.resize({ width: MAX_WIDTH, withoutEnlargement: true }).toBuffer()
+    : pipeline.toBuffer();
 }
 
 // ---------------------------------------------------------------------------

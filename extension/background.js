@@ -509,12 +509,8 @@ async function cmdScroll({ deltaX = 0, deltaY = 0, tabId } = {}) {
 async function cmdNavigate({ url, tabId, timeout = 15000 } = {}) {
   const tab = await resolveTab({ tabId });
   await chrome.tabs.update(tab.id, { url });
-  // Wait for the navigation to commit and the page to reach readyState=complete.
-  // Without this the auto-screenshot (and any immediate follow-up command) sees
-  // the previous page because chrome.tabs.update returns before the load begins.
-  // 50ms initial sleep: enough for the browser to register the navigation before
-  // the first poll, while avoiding the 250ms waste of the old 300ms sleep on fast
-  // local or cached pages.
+  // 50ms initial sleep lets the browser register the navigation before the first
+  // status poll; avoids the old 300ms fixed wait on fast/cached pages.
   const deadline = Date.now() + timeout;
   await sleep(50);
   while (Date.now() < deadline) {
