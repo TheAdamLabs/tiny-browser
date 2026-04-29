@@ -144,3 +144,22 @@ test('POST screenshot without extension returns 500', async () => {
   assert.equal(status, 500);
   assert.ok(body.error);
 });
+
+test('every ROUTES entry has a matching COMMANDS catalogue entry', async () => {
+  const fs = await import('fs');
+
+  // Extract route names from the ROUTES Set literal in server.mjs
+  const serverSrc = fs.readFileSync(path.resolve(__dir, '../bin/server.mjs'), 'utf8');
+  const routesMatch = serverSrc.match(/const ROUTES = new Set\(\[([\s\S]*?)\]\)/);
+  assert.ok(routesMatch, 'ROUTES set not found in server.mjs');
+  const routes = routesMatch[1].match(/'[^']+'/g).map(s => s.slice(1, -1));
+
+  // Extract command names from the name: '...' entries in COMMANDS in tiny-browser.mjs
+  const cliSrc = fs.readFileSync(path.resolve(__dir, '../bin/tiny-browser.mjs'), 'utf8');
+  const nameMatches = [...cliSrc.matchAll(/name:\s*'([^']+)'/g)].map(m => m[1]);
+  assert.ok(nameMatches.length > 0, 'No name entries found in COMMANDS in tiny-browser.mjs');
+  const cataloguedNames = new Set(nameMatches);
+
+  const missing = routes.filter(r => !cataloguedNames.has(r));
+  assert.deepEqual(missing, [], `Routes missing from help catalogue: ${missing.join(', ')}`);
+});

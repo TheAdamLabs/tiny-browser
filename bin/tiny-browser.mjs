@@ -81,6 +81,13 @@ const COMMANDS = [
     auto_screenshot: true,
   },
   {
+    name: 'hover',
+    params: '{"x":N,"y":N[,"tabId":N]}',
+    returns: '{"ok":true,"screenshot":"..."}',
+    desc: 'Move the mouse to (x, y) without clicking. Triggers CSS :hover styles, mouseover/mouseenter events, and JS-driven hover menus (dropdowns, flyouts, tooltips). First call incurs a ~1–5 s CDP init cost; subsequent calls are fast.',
+    auto_screenshot: true,
+  },
+  {
     name: 'scroll',
     params: '{"deltaY":N[,"deltaX":N,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',

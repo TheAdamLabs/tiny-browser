@@ -1,0 +1,58 @@
+[
+  {
+    "issue": "24",
+    "goal": "Fix list_tabs to use lastFocusedWindow:true so it returns the correct tabs when Cursor has focus",
+    "closedAt": "2026-04-29T09:17:44.846Z",
+    "assertions": [
+      {
+        "type": "shell",
+        "command": "npm test",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "grep -n 'lastFocusedWindow' extension/background.js",
+        "expect": {
+          "exitCode": 0
+        }
+      }
+    ]
+  },
+  {
+    "issue": "25",
+    "goal": "Add hover command to trigger hover-activated UI (dropdowns, flyouts, tooltips)",
+    "closedAt": "2026-04-29T09:24:19.772Z",
+    "assertions": [
+      {
+        "type": "shell",
+        "command": "npm test",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node -e \"const s=require('fs').readFileSync('bin/server.mjs','utf8'); if(!s.includes(\\\"'hover'\\\")) process.exit(1)\"",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('cmdHover')) process.exit(1)\"",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node -e \"const s=require('fs').readFileSync('SKILL.md','utf8'); if(!s.includes('hover')) process.exit(1)\"",
+        "expect": {
+          "exitCode": 0
+        }
+      }
+    ]
+  }
+]
