@@ -105,6 +105,21 @@ tiny-browser hover '{"x":350,"y":60}'
 tiny-browser click_element '{"text":"Settings"}'
 ```
 
+**Drag and drop (Kanban, sortable lists, resizable panels)**
+```bash
+# Take a screenshot to get source and target coordinates from the grid
+tiny-browser screenshot
+# Drag from one card to another column — steps:20 for smooth SPAs like Linear/Trello
+tiny-browser drag '{"fromX":200,"fromY":300,"toX":600,"toY":300,"steps":20,"duration":500}'
+# Read the auto-screenshot to confirm the drop landed correctly
+```
+
+**Read a long article without truncation**
+```bash
+# Default text_limit is 4000 chars — use a higher value for long-form content
+tiny-browser read_page '{"text_limit":20000}'
+```
+
 **Disambiguate duplicate buttons**
 ```bash
 tiny-browser click_element '{"text":"Subscribe","exact":true,"x_max":400}'
@@ -205,7 +220,7 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **Slow background tabs**: screenshot default timeout 20s — pass `{"timeout_ms":30000}` if it times out
 - **query returns null**: `query` returns `{result:null}` when the expression evaluates to `undefined` (e.g. missing selector via optional chaining) — check for null before using the result
 - **read_page link cap**: `read_page` returns up to 100 links; use `query` with a custom expression for more
-- **Fast typing**: default `type` adds realistic delays (~85 ms/char); add `"fast":true` for 10× faster input on long strings
+- **Fast typing**: `"fast":true` uses `Input.insertText` — one CDP round trip for any string length (~50ms flat). Fires `input`/`beforeinput` but not `keydown`/`keyup`; works for most React/Vue forms. Omit for sites that require per-key events
 - **scroll is instant**: `scroll` uses `window.scrollBy({behavior:'instant'})` — it overrides CSS `scroll-behavior:smooth` and completes in ~0.6s; scrollY is at the final position immediately after the call returns
 - **scroll takes `deltaY`/`deltaX`**: positive deltaY scrolls down, negative scrolls up; no `x`/`y` center params needed
 - **scroll on SPAs (LinkedIn, Gmail, etc.)**: if the page uses an inner scroll container, `scroll` auto-detects it by checking whether `window.scrollY` changed; if not, it finds the deepest `overflow:auto/scroll` ancestor at the viewport center and scrolls that instead — no special params needed
@@ -217,3 +232,6 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **`read_page` on active tab only**: `read_page` works best on the active tab; for background tabs, `switch_tab` first, then call `read_page`
 - **`read_page` link cap on nav-heavy pages**: Wikipedia and similar pages put 50+ language sidebar links first in the DOM, filling the 100-link cap before article content links appear. Use `within_selector` to scope: `read_page '{"within_selector":"#mw-content-text"}'`
 - **`find_element` nth with selector**: `{"selector":".toggle","nth":1}` now correctly returns the 2nd matching element. Previously `querySelector` always returned element 0 regardless of nth. Fixed: uses `querySelectorAll(sel)[nth]` directly.
+- **`navigate` error detection**: `navigate` now returns `{"ok":false,"error":"Navigation failed: page could not be loaded"}` when Chrome lands on an error page (DNS failure, connection refused, etc.) instead of silently returning `ok:true`. Check `ok` before proceeding.
+- **`drag` steps for SPAs**: increase `steps` (default 10) to 20–30 for apps that use `pointermove` to track position (Linear, Trello, Figma). Too few steps can cause the drag to "snap" without triggering the drop target.
+- **`read_page` text_limit**: pass `{"text_limit":20000}` for long articles — the default 4000-char cap truncates most real documentation pages

@@ -194,6 +194,7 @@ async function dispatch(msg) {
     switch (msg.command) {
       case 'screenshot':     return await cmdScreenshot(msg.params);
       case 'click':          return await cmdClick(msg.params);
+      case 'drag':           return await cmdDrag(msg.params);
       case 'hover':          return await cmdHover(msg.params);
       case 'type':           return await cmdType(msg.params);
       case 'scroll':         return await cmdScroll(msg.params);
@@ -471,9 +472,11 @@ async function cmdHover({ x, y, tabId } = {}) {
 /**
  * Type text into the active (or clicked) element.
  *
- * fast:true — skip the 50-120 ms per-keystroke delay and pre-type click
- * settle sleeps, reducing a 20-char string from ~2 s to <100 ms.  Trades
- * human-likeness for speed; suitable for most automated workflows.
+ * fast:true — uses Input.insertText for a single CDP round trip regardless of
+ * string length (~50ms flat vs 3N round trips for character-by-character typing).
+ * Note: Input.insertText fires beforeinput/input events but not keydown/keyup —
+ * sufficient for React/Vue controlled inputs and most real-world forms. For sites
+ * that gate on keydown events, omit fast:true and use the default character mode.
  */
 async function cmdType({ text, x, y, tabId, fast = false } = {}) {
   const tab = await resolveTab({ tabId });
@@ -484,10 +487,61 @@ async function cmdType({ text, x, y, tabId, fast = false } = {}) {
     await cdpFocus(target, x, y);
     if (!fast) await sleep(100);
   }
-  for (const char of text) {
-    await humanTypeKey(target, char);
-    if (!fast) await sleep(jitter(50, 70));
+  if (fast) {
+    // Single CDP call — no per-char round trips regardless of string length.
+    // Handles \n and \t by splitting on them and dispatching real key events
+    // between insertText segments (some editors only accept \n via keyDown).
+    const segments = text.split(/(\n|\t)/);
+    for (const seg of segments) {
+      if (seg === '\n' || seg === '\t') {
+        await humanTypeKey(target, seg);
+      } else if (seg.length > 0) {
+        await chrome.debugger.sendCommand(target, 'Input.insertText', { text: seg });
+      }
+    }
+  } else {
+    for (const char of text) {
+      await humanTypeKey(target, char);
+      await sleep(jitter(50, 70));
+    }
   }
+  return { ok: true };
+}
+
+/**
+ * Drag from (fromX, fromY) to (toX, toY) using CDP mouse events.
+ *
+ * steps — number of intermediate mouseMoved events (default 10); higher = smoother
+ *         for apps that use pointermove to track position (e.g. canvas, Kanban).
+ * duration — total drag time in ms (default 300); spread across the intermediate steps.
+ *
+ * Works on: Kanban boards (Linear, Trello), sortable lists, resizable panels,
+ * file manager moves, canvas drawing tools, range sliders.
+ */
+async function cmdDrag({ fromX, fromY, toX, toY, tabId, steps = 10, duration = 300 } = {}) {
+  const tab = await resolveTab({ tabId });
+  const target = await ensureDebugger(tab.id);
+  const stepMs = Math.max(1, Math.round(duration / steps));
+  // Press at source
+  await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: fromX, y: fromY,
+    button: 'left', clickCount: 1, modifiers: 0,
+  });
+  // Move across intermediate positions
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = Math.round(fromX + (toX - fromX) * t);
+    const y = Math.round(fromY + (toY - fromY) * t);
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x, y, button: 'left', modifiers: 0,
+    });
+    await sleep(stepMs);
+  }
+  // Release at destination
+  await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x: toX, y: toY,
+    button: 'left', clickCount: 1, modifiers: 0,
+  });
   return { ok: true };
 }
 
@@ -534,11 +588,26 @@ async function cmdNavigate({ url, tabId, timeout = 15000 } = {}) {
   while (Date.now() < deadline) {
     try {
       const updatedTab = await chrome.tabs.get(tab.id);
-      if (updatedTab.status === 'complete') return { ok: true };
+      if (updatedTab.status === 'complete') {
+        // Detect Chrome error pages via CDP: tab.url stays as the originally requested URL
+        // even on error pages, but document location.href reports 'chrome-error://chromewebdata'
+        // internally. Evaluating location.href gives the true document URL.
+        try {
+          const debugTarget = await ensureDebugger(updatedTab.id);
+          const { result: locResult } = await chrome.debugger.sendCommand(debugTarget, 'Runtime.evaluate', {
+            expression: 'location.href', returnByValue: true,
+          });
+          const docUrl = locResult?.value ?? '';
+          if (docUrl.startsWith('chrome-error://')) {
+            return { ok: false, error: 'Navigation failed: page could not be loaded', url: updatedTab.url };
+          }
+        } catch { /* CDP unavailable on this page type — treat as success */ }
+        return { ok: true, url: updatedTab.url };
+      }
     } catch { break; }
     await sleep(150);
   }
-  return { ok: true };
+  return { ok: false, error: 'Navigation timed out', url };
 }
 
 async function cmdGetUrl(params = {}) {
@@ -673,6 +742,9 @@ async function cmdReadPage(params = {}) {
   // within_selector: scope link extraction to a specific container (e.g. '#mw-content-text'
   // on Wikipedia to skip the 50+ language sidebar links that fill the 100-link cap).
   const withinSelector = params.within_selector ?? null;
+  // text_limit: override the default 4000-char body text cap. Pass a higher value
+  // (e.g. 20000) to read long articles and docs pages without truncation.
+  const textLimit = params.text_limit ?? 4000;
   const withinExpr = withinSelector
     ? `document.querySelector(${JSON.stringify(withinSelector)}) ?? document`
     : 'document';
@@ -686,7 +758,7 @@ async function cmdReadPage(params = {}) {
       return JSON.stringify({
         title: document.title,
         url: location.href,
-        text: (document.body?.innerText ?? '').slice(0, 4000),
+        text: (document.body?.innerText ?? '').slice(0, ${textLimit}),
         links,
       });
     })()`,

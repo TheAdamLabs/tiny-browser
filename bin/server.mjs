@@ -117,7 +117,7 @@ function sendToExtension(command, params = {}) {
 // ---------------------------------------------------------------------------
 
 const ROUTES = new Set([
-  'click', 'type', 'scroll', 'navigate',
+  'click', 'drag', 'type', 'scroll', 'navigate',
   'get_url', 'read_page', 'key_press',
   'find_element', 'click_element', 'select_option', 'wait', 'query',
   'list_tabs', 'new_tab', 'switch_tab', 'close_tab',
@@ -129,7 +129,7 @@ const ROUTES = new Set([
 // Commands that change visible page state — automatically include a screenshot
 // in their response so the AI agent can read it without a separate round-trip.
 const AUTO_SCREENSHOT = new Set([
-  'click', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
+  'click', 'drag', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
   'click_element', 'select_option', 'wait', 'wait_for_element', 'hover',
 ]);
 
@@ -148,6 +148,7 @@ const SETTLE_MS = {
   wait:              50,
   wait_for_element:  50,
   click:            200,
+  drag:             200,  // allow drop targets to settle after mouseReleased
   click_element:    200,
   select_option:    150,
   scroll:            60,  // scrollBy({behavior:'instant'}) is synchronous; 60ms covers repaint

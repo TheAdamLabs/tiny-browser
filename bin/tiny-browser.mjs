@@ -77,7 +77,7 @@ const COMMANDS = [
     name: 'type',
     params: '{"text":"value"[,"x":N,"y":N,"fast":bool,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Type text. Set fast:true to skip per-keystroke delays (~50-120 ms/char) — up to 10× faster for long strings. Omit x/y to type into the currently focused element. Note: may not work on React-controlled inputs in background tabs — prefer URL params for search boxes.',
+    desc: 'Type text. Set fast:true to use Input.insertText — a single CDP round trip for any string length (~50ms flat vs character-by-character). fast:true fires input/beforeinput events but not keydown/keyup; works for most forms including React. Omit x/y to type into the currently focused element.',
     auto_screenshot: true,
   },
   {
@@ -85,6 +85,13 @@ const COMMANDS = [
     params: '{"key":"Enter"[,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
     desc: 'Press a named key. Keys: Enter Tab Escape Backspace Delete ArrowUp ArrowDown ArrowLeft ArrowRight PageUp PageDown Home End Space SelectAll Copy Paste Cut (last four are Cmd shortcuts on Mac).',
+    auto_screenshot: true,
+  },
+  {
+    name: 'drag',
+    params: '{"fromX":N,"fromY":N,"toX":N,"toY":N[,"steps":10,"duration":300,"tabId":N]}',
+    returns: '{"ok":true,"screenshot":"..."}',
+    desc: 'Drag from (fromX, fromY) to (toX, toY). steps controls how many intermediate mouseMoved events are sent (default 10, increase for smoother drags). duration is total drag time in ms (default 300). Works on Kanban boards, sortable lists, resizable panels, canvas drawing, range sliders.',
     auto_screenshot: true,
   },
   {
@@ -117,9 +124,9 @@ const COMMANDS = [
   },
   {
     name: 'read_page',
-    params: '[{"tabId":N,"within_selector":"CSS"}]',
+    params: '[{"tabId":N,"within_selector":"CSS","text_limit":N}]',
     returns: '{"title":"...","url":"...","text":"...","links":[{"text":"...","href":"..."}]}',
-    desc: 'Return page title, first 4000 chars of body text, and up to 100 anchor links. Pass within_selector to scope link extraction to a container (e.g. "#mw-content-text" on Wikipedia to skip language sidebar links).',
+    desc: 'Return page title, body text, and up to 100 anchor links. text_limit controls body text length (default 4000 — pass e.g. 20000 for long articles). Pass within_selector to scope link extraction to a container (e.g. "#mw-content-text" on Wikipedia to skip language sidebar links).',
     auto_screenshot: false,
   },
   {
