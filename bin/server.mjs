@@ -119,7 +119,7 @@ function sendToExtension(command, params = {}) {
 const ROUTES = new Set([
   'click', 'type', 'scroll', 'navigate',
   'get_url', 'read_page', 'key_press',
-  'find_element', 'click_element', 'wait', 'query',
+  'find_element', 'click_element', 'select_option', 'wait', 'query',
   'list_tabs', 'new_tab', 'switch_tab', 'close_tab',
   'wait_for_element',
   'get_console', 'enable_network', 'get_network',
@@ -130,7 +130,7 @@ const ROUTES = new Set([
 // in their response so the AI agent can read it without a separate round-trip.
 const AUTO_SCREENSHOT = new Set([
   'click', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
-  'click_element', 'wait', 'wait_for_element', 'hover',
+  'click_element', 'select_option', 'wait', 'wait_for_element', 'hover',
 ]);
 
 // Per-command settle time (ms) between command completion and auto-screenshot.
@@ -149,6 +149,7 @@ const SETTLE_MS = {
   wait_for_element:  50,
   click:            200,
   click_element:    200,
+  select_option:    150,
   scroll:            60,  // scrollBy({behavior:'instant'}) is synchronous; 60ms covers repaint
   key_press:        150,
   type:             150,

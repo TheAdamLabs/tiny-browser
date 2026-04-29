@@ -67,6 +67,13 @@ const COMMANDS = [
     auto_screenshot: true,
   },
   {
+    name: 'select_option',
+    params: '{"selector":"css","value":"opt-value" | "text":"option label"[,"tabId":N]}',
+    returns: '{"ok":true,"value":"selected-value","text":"Option Label","screenshot":"..."}',
+    desc: 'Select an option in a native <select> element. Find the select by CSS selector; pick the option by value attribute (exact) or by visible text (case-insensitive, exact before partial). Fires input and change events so React/Vue/vanilla handlers trigger.',
+    auto_screenshot: true,
+  },
+  {
     name: 'type',
     params: '{"text":"value"[,"x":N,"y":N,"fast":bool,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',

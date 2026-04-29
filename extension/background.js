@@ -203,6 +203,7 @@ async function dispatch(msg) {
       case 'key_press':      return await cmdKeyPress(msg.params);
       case 'find_element':   return await cmdFindElement(msg.params);
       case 'click_element':  return await cmdClickElement(msg.params);
+      case 'select_option':  return await cmdSelectOption(msg.params);
       case 'wait':           return await cmdWait(msg.params);
       case 'query':          return await cmdQuery(msg.params);
       case 'list_tabs':      return await cmdListTabs();
@@ -596,6 +597,54 @@ async function cmdCloseTab({ index, tabId } = {}) {
   if (!tab) return { ok: false, error: 'tab not found' };
   await chrome.tabs.remove(tab.id);
   return { ok: true };
+}
+
+/**
+ * Select an option in a native <select> element.
+ *
+ * selector — CSS selector for the <select> element.
+ * value    — match by option's value attribute (exact).
+ * text     — match by option's visible text (case-insensitive, exact first, then partial).
+ * tabId    — optional tab to target.
+ *
+ * Dispatches both `input` and `change` events so React/Vue/vanilla handlers fire.
+ * Returns { ok, value, text } on success or { ok:false, error } if not found.
+ */
+async function cmdSelectOption({ selector, text, value, tabId } = {}) {
+  const tab = await resolveTab({ tabId });
+  const target = await ensureDebugger(tab.id);
+  const { result, exceptionDetails } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+    expression: `(() => {
+      const sel   = ${JSON.stringify(selector ?? null)};
+      const wantVal  = ${JSON.stringify(value  ?? null)};
+      const wantText = ${JSON.stringify(text   ?? null)};
+
+      const el = sel ? document.querySelector(sel) : null;
+      if (!el)              return JSON.stringify({ ok: false, error: 'select element not found' });
+      if (el.tagName !== 'SELECT') return JSON.stringify({ ok: false, error: 'element is not a <select>' });
+
+      let opt = null;
+      if (wantVal !== null) {
+        opt = Array.from(el.options).find(o => o.value === wantVal) ?? null;
+      } else if (wantText !== null) {
+        const wl = wantText.toLowerCase();
+        opt = Array.from(el.options).find(o => o.text.trim().toLowerCase() === wl)
+           ?? Array.from(el.options).find(o => o.text.trim().toLowerCase().includes(wl))
+           ?? null;
+      } else {
+        opt = el.options[0] ?? null;
+      }
+      if (!opt) return JSON.stringify({ ok: false, error: 'option not found' });
+
+      el.value = opt.value;
+      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return JSON.stringify({ ok: true, value: el.value, text: opt.text.trim() });
+    })()`,
+    returnByValue: true,
+  });
+  if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? 'JS error');
+  return JSON.parse(result.value);
 }
 
 /**

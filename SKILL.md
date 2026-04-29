@@ -81,7 +81,15 @@ tiny-browser type '{"text":"value"}'
 tiny-browser click_element '{"text":"Submit","exact":true}'
 ```
 
-**Open a dropdown option**
+**Select from a native `<select>` dropdown**
+```bash
+# By option value attribute (most reliable)
+tiny-browser select_option '{"selector":"select[name=country]","value":"US"}'
+# By visible option text (case-insensitive)
+tiny-browser select_option '{"selector":"#sort","text":"Newest first"}'
+```
+
+**Open a custom (non-native) dropdown option**
 ```bash
 # Use selector= not text= — text-match can hit same-word elements behind the overlay
 tiny-browser click_element '{"selector":"li[role=option]"}'

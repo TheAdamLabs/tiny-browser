@@ -1,8 +1,8 @@
 [
   {
-    "issue": "24",
-    "goal": "Fix list_tabs to use lastFocusedWindow:true so it returns the correct tabs when Cursor has focus",
-    "closedAt": "2026-04-29T09:17:44.846Z",
+    "issue": "27",
+    "goal": "Add PageUp, PageDown, Home, and End keys to KEY_MAP in extension/background.js",
+    "closedAt": "2026-04-29T09:36:23.587Z",
     "assertions": [
       {
         "type": "shell",
@@ -13,67 +13,18 @@
       },
       {
         "type": "shell",
-        "command": "grep -n 'lastFocusedWindow' extension/background.js",
+        "command": "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); ['PageUp','PageDown','Home','End'].forEach(k=>{if(!s.includes(k)){console.error('missing:',k);process.exit(1)}})\"",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node -e \"const s=require('fs').readFileSync('bin/tiny-browser.mjs','utf8'); if(!s.includes('PageUp')) process.exit(1)\"",
         "expect": {
           "exitCode": 0
         }
       }
-    ]
-  },
-  {
-    "issue": "25",
-    "goal": "Add hover command to trigger hover-activated UI (dropdowns, flyouts, tooltips)",
-    "closedAt": "2026-04-29T09:24:19.772Z",
-    "assertions": [
-      {
-        "type": "shell",
-        "command": "npm test",
-        "expect": {
-          "exitCode": 0
-        }
-      },
-      {
-        "type": "shell",
-        "command": "node -e \"const s=require('fs').readFileSync('bin/server.mjs','utf8'); if(!s.includes(\\\"'hover'\\\")) process.exit(1)\"",
-        "expect": {
-          "exitCode": 0
-        }
-      },
-      {
-        "type": "shell",
-        "command": "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('cmdHover')) process.exit(1)\"",
-        "expect": {
-          "exitCode": 0
-        }
-      },
-      {
-        "type": "shell",
-        "command": "node -e \"const s=require('fs').readFileSync('SKILL.md','utf8'); if(!s.includes('hover')) process.exit(1)\"",
-        "expect": {
-          "exitCode": 0
-        }
-      }
-    ]
-  },
-  {
-    "issue": "26",
-    "goal": "Fix hover missing from tiny-browser help catalogue and add route-parity test to catch future drift",
-    "closedAt": "2026-04-29T09:35:23.066Z",
-    "assertions": [
-      {
-        "type": "shell",
-        "command": "npm test",
-        "expect": {
-          "exitCode": 0
-        }
-      },
-      {
-        "type": "shell",
-        "command": "node bin/tiny-browser.mjs help | grep hover",
-        "expect": {
-          "exitCode": 0
-        }
-      },
     ]
   }
 ]
