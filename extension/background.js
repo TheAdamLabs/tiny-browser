@@ -527,7 +527,7 @@ async function cmdGetUrl(params = {}) {
 }
 
 async function cmdListTabs() {
-  const tabs = await chrome.tabs.query({ currentWindow: true });
+  const tabs = await chrome.tabs.query({ lastFocusedWindow: true });
   return tabs.map(t => ({ index: t.index, tabId: t.id, url: t.url, title: t.title, active: t.active }));
 }
 
