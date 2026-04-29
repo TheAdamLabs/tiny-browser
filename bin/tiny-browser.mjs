@@ -103,9 +103,9 @@ const COMMANDS = [
   },
   {
     name: 'read_page',
-    params: '[{"tabId":N}]',
+    params: '[{"tabId":N,"within_selector":"CSS"}]',
     returns: '{"title":"...","url":"...","text":"...","links":[{"text":"...","href":"..."}]}',
-    desc: 'Return page title, first 4000 chars of body text, and up to 100 anchor links with hrefs.',
+    desc: 'Return page title, first 4000 chars of body text, and up to 100 anchor links. Pass within_selector to scope link extraction to a container (e.g. "#mw-content-text" on Wikipedia to skip language sidebar links).',
     auto_screenshot: false,
   },
   {

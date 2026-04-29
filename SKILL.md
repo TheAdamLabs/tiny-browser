@@ -196,3 +196,5 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **stale tabs**: tabs opened before a server restart show ERR_FILE_NOT_FOUND; always open fresh tabs with `new_tab` at the start of a workflow
 - **UI-first navigation**: always click through the visible UI (Locations → type → autocomplete → Show results) rather than guessing URL parameters (geoUrn, etc.) — parameter values are opaque and wrong guesses waste time
 - **`read_page` on active tab only**: `read_page` works best on the active tab; for background tabs, `switch_tab` first, then call `read_page`
+- **`read_page` link cap on nav-heavy pages**: Wikipedia and similar pages put 50+ language sidebar links first in the DOM, filling the 100-link cap before article content links appear. Use `within_selector` to scope: `read_page '{"within_selector":"#mw-content-text"}'`
+- **`find_element` nth with selector**: `{"selector":".toggle","nth":1}` now correctly returns the 2nd matching element. Previously `querySelector` always returned element 0 regardless of nth. Fixed: uses `querySelectorAll(sel)[nth]` directly.

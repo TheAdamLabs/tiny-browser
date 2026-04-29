@@ -347,21 +347,19 @@ function buildFindExpr(selector, text, exact = false, opts = {}) {
     }`;
 
   if (selector) {
-    // Selector path: try regular DOM first, then shadow DOM.
-    // Wrap querySelector in try/catch: an invalid composite selector (e.g. unquoted brackets
-    // like input[name=foo[bar]]) throws DOMException:SyntaxError. Fall through to text-match
-    // on error rather than silently returning null.
+    // Selector path: use querySelectorAll(selector)[nth] so nth is always respected.
+    // querySelector() would always return element 0, breaking nth:1, nth:2, etc.
+    // Wrap in try/catch: invalid selectors (e.g. unquoted brackets) throw SyntaxError —
+    // el stays null and find_element returns found:false rather than crashing.
     return `(() => {
       ${collectFn}
       let el = null;
       try {
-        el = ${within_selector
-          ? `document.querySelector(${JSON.stringify(within_selector)})?.querySelector(${JSON.stringify(selector)})`
-          : `document.querySelector(${JSON.stringify(selector)})`};
+        const scope = ${within_selector
+          ? `document.querySelector(${JSON.stringify(within_selector)}) ?? document`
+          : 'document'};
+        el = Array.from(scope.querySelectorAll(${JSON.stringify(selector)}))[${nth}] ?? null;
         if (!el) {
-          const scope = ${within_selector
-            ? `document.querySelector(${JSON.stringify(within_selector)}) ?? document`
-            : 'document'};
           el = collectAll(scope, ${JSON.stringify(selector)})[${nth}] ?? null;
         }
       } catch (_) { /* invalid selector — el stays null */ }
@@ -604,9 +602,16 @@ async function cmdQuery({ expression, tabId } = {}) {
 async function cmdReadPage(params = {}) {
   const tab = await resolveTab(params);
   const target = await ensureDebugger(tab.id);
+  // within_selector: scope link extraction to a specific container (e.g. '#mw-content-text'
+  // on Wikipedia to skip the 50+ language sidebar links that fill the 100-link cap).
+  const withinSelector = params.within_selector ?? null;
+  const withinExpr = withinSelector
+    ? `document.querySelector(${JSON.stringify(withinSelector)}) ?? document`
+    : 'document';
   const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
     expression: `(() => {
-      const links = Array.from(document.querySelectorAll('a[href]'))
+      const root = ${withinExpr};
+      const links = Array.from(root.querySelectorAll('a[href]'))
         .map(a => ({ text: a.innerText.trim().slice(0, 80), href: a.href }))
         .filter(l => l.text && l.href && !l.href.startsWith('javascript:'))
         .slice(0, 100); // cap to avoid JSON truncation on link-heavy pages (e.g. Wikipedia)
