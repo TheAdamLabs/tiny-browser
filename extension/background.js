@@ -194,6 +194,7 @@ async function dispatch(msg) {
     switch (msg.command) {
       case 'screenshot':     return await cmdScreenshot(msg.params);
       case 'click':          return await cmdClick(msg.params);
+      case 'hover':          return await cmdHover(msg.params);
       case 'type':           return await cmdType(msg.params);
       case 'scroll':         return await cmdScroll(msg.params);
       case 'navigate':       return await cmdNavigate(msg.params);
@@ -445,6 +446,24 @@ async function cmdClick({ x, y, tabId, precise = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   await humanClick(target, x, y, { precise });
+  return { ok: true };
+}
+
+/**
+ * Move the mouse to (x, y) without clicking.
+ *
+ * Triggers CSS :hover styles, mouseover/mouseenter events, and JS-driven
+ * hover menus (dropdowns, flyouts, tooltips). The first call incurs a
+ * one-time ~0.9–5 s Chrome CDP input-pipeline lazy-init cost; subsequent
+ * calls are fast. Use when hover is explicitly needed — prefer click for
+ * interactive elements.
+ */
+async function cmdHover({ x, y, tabId } = {}) {
+  const tab = await resolveTab({ tabId });
+  const target = await ensureDebugger(tab.id);
+  await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved', x, y, button: 'none', modifiers: 0,
+  });
   return { ok: true };
 }
 

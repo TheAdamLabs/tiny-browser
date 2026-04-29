@@ -87,6 +87,16 @@ tiny-browser click_element '{"text":"Submit","exact":true}'
 tiny-browser click_element '{"selector":"li[role=option]"}'
 ```
 
+**Trigger a hover-activated menu or tooltip**
+```bash
+# Take a screenshot first to find the coordinates of the nav item
+tiny-browser screenshot
+# Move the mouse to the nav item — CSS :hover activates, dropdown appears
+tiny-browser hover '{"x":350,"y":60}'
+# Read the screenshot in the response, then click the revealed option
+tiny-browser click_element '{"text":"Settings"}'
+```
+
 **Disambiguate duplicate buttons**
 ```bash
 tiny-browser click_element '{"text":"Subscribe","exact":true,"x_max":400}'
@@ -167,6 +177,7 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 ## Gotchas
 
 - **Auto-screenshot**: action responses include `"screenshot"` — read it immediately, don't call screenshot separately
+- **`hover` first-call latency**: the first `hover` in a session incurs a ~1–5 s Chrome CDP input-pipeline init cost; subsequent calls are fast. The auto-screenshot in the response confirms the hover state was reached.
 - **SPA hydration**: `navigate` waits for `readyState=complete` but React/Vue may render buttons after that — use `wait_for_element` on the specific element before acting
 - **Off-screen elements**: `click_element` scrolls into view automatically
 - **Modals / overlays**: use `click_element` + Tab navigation — a missed coordinate click dismisses the overlay

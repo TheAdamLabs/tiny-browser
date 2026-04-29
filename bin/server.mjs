@@ -123,13 +123,14 @@ const ROUTES = new Set([
   'list_tabs', 'new_tab', 'switch_tab', 'close_tab',
   'wait_for_element',
   'get_console', 'enable_network', 'get_network',
+  'hover',
 ]);
 
 // Commands that change visible page state — automatically include a screenshot
 // in their response so the AI agent can read it without a separate round-trip.
 const AUTO_SCREENSHOT = new Set([
   'click', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
-  'click_element', 'wait', 'wait_for_element',
+  'click_element', 'wait', 'wait_for_element', 'hover',
 ]);
 
 // Per-command settle time (ms) between command completion and auto-screenshot.
@@ -140,6 +141,7 @@ const AUTO_SCREENSHOT = new Set([
 //   scroll             — wheel events settle quickly; some lazy-load needs a moment.
 //   key_press          — keystroke fires synchronously; short settle for inline validation.
 //   type               — last keystroke has fired; UI update is fast.
+//   hover              — CSS :hover transitions typically complete within 200ms.
 const SETTLE_MS = {
   navigate:         150,
   new_tab:          150,
@@ -150,6 +152,7 @@ const SETTLE_MS = {
   scroll:            60,  // scrollBy({behavior:'instant'}) is synchronous; 60ms covers repaint
   key_press:        150,
   type:             150,
+  hover:            200,
 };
 
 const server = http.createServer(async (req, res) => {
