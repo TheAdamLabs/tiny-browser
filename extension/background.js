@@ -657,6 +657,10 @@ const KEY_MAP = {
   ArrowDown:  { code: 'ArrowDown',  keyCode: 40 },
   ArrowLeft:  { code: 'ArrowLeft',  keyCode: 37 },
   ArrowRight: { code: 'ArrowRight', keyCode: 39 },
+  PageUp:     { code: 'PageUp',     keyCode: 33 },
+  PageDown:   { code: 'PageDown',   keyCode: 34 },
+  Home:       { code: 'Home',       keyCode: 36 },
+  End:        { code: 'End',        keyCode: 35 },
   Space:      { code: 'Space',      keyCode: 32, text: ' ' },
   // Editing shortcuts (Cmd on Mac)
   SelectAll:  { code: 'KeyA',       keyCode: 65, key: 'a', modifiers: 4 },

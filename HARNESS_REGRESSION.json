@@ -54,5 +54,26 @@
         }
       }
     ]
+  },
+  {
+    "issue": "26",
+    "goal": "Fix hover missing from tiny-browser help catalogue and add route-parity test to catch future drift",
+    "closedAt": "2026-04-29T09:35:23.066Z",
+    "assertions": [
+      {
+        "type": "shell",
+        "command": "npm test",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node bin/tiny-browser.mjs help | grep hover",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+    ]
   }
 ]

@@ -77,7 +77,7 @@ const COMMANDS = [
     name: 'key_press',
     params: '{"key":"Enter"[,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Press a named key. Keys: Enter Tab Escape Backspace Delete ArrowUp ArrowDown ArrowLeft ArrowRight Space SelectAll Copy Paste Cut (last four are Cmd shortcuts on Mac).',
+    desc: 'Press a named key. Keys: Enter Tab Escape Backspace Delete ArrowUp ArrowDown ArrowLeft ArrowRight PageUp PageDown Home End Space SelectAll Copy Paste Cut (last four are Cmd shortcuts on Mac).',
     auto_screenshot: true,
   },
   {
