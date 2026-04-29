@@ -26,5 +26,40 @@
         }
       }
     ]
+  },
+  {
+    "issue": "28",
+    "goal": "Add select_option command for native <select> dropdowns",
+    "closedAt": "2026-04-29T09:38:03.807Z",
+    "assertions": [
+      {
+        "type": "shell",
+        "command": "npm test",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node -e \"const s=require('fs').readFileSync('bin/server.mjs','utf8'); if(!s.includes(\\\"'select_option'\\\")) process.exit(1)\"",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('cmdSelectOption')) process.exit(1)\"",
+        "expect": {
+          "exitCode": 0
+        }
+      },
+      {
+        "type": "shell",
+        "command": "node bin/tiny-browser.mjs help | grep select_option",
+        "expect": {
+          "exitCode": 0
+        }
+      }
+    ]
   }
 ]

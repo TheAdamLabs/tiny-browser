@@ -620,8 +620,8 @@ async function cmdSelectOption({ selector, text, value, tabId } = {}) {
       const wantText = ${JSON.stringify(text   ?? null)};
 
       const el = sel ? document.querySelector(sel) : null;
-      if (!el)              return JSON.stringify({ ok: false, error: 'select element not found' });
-      if (el.tagName !== 'SELECT') return JSON.stringify({ ok: false, error: 'element is not a <select>' });
+      if (!el)              return JSON.stringify({ ok: false, reason: 'select element not found' });
+      if (el.tagName !== 'SELECT') return JSON.stringify({ ok: false, reason: 'element is not a <select>' });
 
       let opt = null;
       if (wantVal !== null) {
@@ -634,7 +634,7 @@ async function cmdSelectOption({ selector, text, value, tabId } = {}) {
       } else {
         opt = el.options[0] ?? null;
       }
-      if (!opt) return JSON.stringify({ ok: false, error: 'option not found' });
+      if (!opt) return JSON.stringify({ ok: false, reason: 'option not found' });
 
       el.value = opt.value;
       el.dispatchEvent(new Event('input',  { bubbles: true }));
