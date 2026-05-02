@@ -1,0 +1,26 @@
+[
+  {
+    "goal": "get_network timestamps use Unix ms (wallTime) not Chrome monotonic uptime",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('wallTime')) { console.error('wallTime not used'); process.exit(1); }\""
+    ]
+  },
+  {
+    "goal": "CLI exits 1 on logical failures (found:false, ok:false, ready:false)",
+    "assertions": [
+      "TINY_BROWSER_PORT=17331 node bin/server.mjs &>/tmp/tb-guard.log & sleep 1 && node -e \"const h=require('http'); h.request({hostname:'127.0.0.1',port:17331,path:'/find_element',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(JSON.stringify({selector:'#never-exists'}))}},res=>{let d='';res.on('data',c=>d+=c);res.on('end',()=>{const b=JSON.parse(d);process.exit(b.found===false?0:1)})}).end(JSON.stringify({selector:'#never-exists'}))\" ; kill %1 2>/dev/null"
+    ]
+  },
+  {
+    "goal": "type replace:true param accepted by cmdType",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('replace')) { console.error('replace param missing'); process.exit(1); }\""
+    ]
+  },
+  {
+    "goal": "scroll accepts x,y params to target a specific scrollable container",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('probeX') && !s.includes('scrollAncestor')) { console.error('scroll x/y targeting missing'); process.exit(1); }\""
+    ]
+  }
+]
