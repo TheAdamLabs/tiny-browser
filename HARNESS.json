@@ -8,5 +8,7 @@
     "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('replace')) { console.error('replace param missing from cmdType'); process.exit(1); } console.log('replace OK')\"",
     "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('scrollPoint') && !s.includes('scrollX') && !s.includes('scroll_x')) { console.error('scroll x/y targeting missing'); process.exit(1); } console.log('scroll x/y OK')\""
   ],
-  "log": []
+  "log": [
+    "Attempt 1: Implemented all 4 fixes. All structural assertions pass. npm test passes (7/7). Live CLI exit code tests pass (find_element not found → exit 1, wait_for_element timeout → exit 1, navigate success → exit 0). extension/background.js changes (wallTime, replace, scroll x/y) require Chrome extension reload to take live effect — structurally verified."
+  ]
 }

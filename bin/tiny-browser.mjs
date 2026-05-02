@@ -75,9 +75,9 @@ const COMMANDS = [
   },
   {
     name: 'type',
-    params: '{"text":"value"[,"x":N,"y":N,"fast":bool,"tabId":N]}',
+    params: '{"text":"value"[,"x":N,"y":N,"fast":bool,"replace":bool,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Type text. Set fast:true to use Input.insertText — a single CDP round trip for any string length (~50ms flat vs character-by-character). fast:true fires input/beforeinput events but not keydown/keyup; works for most forms including React. Omit x/y to type into the currently focused element.',
+    desc: 'Type text. Set fast:true to use Input.insertText — a single CDP round trip for any string length (~50ms flat vs character-by-character). fast:true fires input/beforeinput events but not keydown/keyup; works for most forms including React. Set replace:true to select-all and delete existing field content before typing (prevents appending). Omit x/y to type into the currently focused element.',
     auto_screenshot: true,
   },
   {
@@ -103,9 +103,9 @@ const COMMANDS = [
   },
   {
     name: 'scroll',
-    params: '{"deltaY":N[,"deltaX":N,"tabId":N]}',
+    params: '{"deltaY":N[,"deltaX":N,"x":N,"y":N,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Scroll the page. Positive deltaY = down, negative = up.',
+    desc: 'Scroll the page. Positive deltaY = down, negative = up. Pass x,y to target a specific scrollable container at those viewport coordinates (e.g. a sidebar or modal) instead of the page-center default.',
     auto_screenshot: true,
   },
   {
@@ -299,7 +299,17 @@ if (!command) {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         process.stdout.write(data + '\n');
-        process.exit(res.statusCode === 200 ? 0 : 1);
+        if (res.statusCode !== 200) { process.exit(1); return; }
+        // Exit 1 on logical failures so agents can use `&&` chains and `if` checks.
+        // ok:false, found:false, ready:false all indicate the command did not succeed.
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.ok === false || parsed.found === false || parsed.ready === false) {
+            process.exit(1);
+            return;
+          }
+        } catch { /* non-JSON or unexpected shape — treat as success */ }
+        process.exit(0);
       });
     }
   );

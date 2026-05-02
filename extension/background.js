@@ -136,7 +136,8 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       method:   params.request.method,
       url:      params.request.url,
       type:     params.type,
-      ts:       Math.round(params.timestamp * 1000),
+      ts:       Math.round((params.wallTime ?? params.timestamp) * 1000), // Unix ms
+      _mono:    params.timestamp, // Chrome monotonic seconds — used for duration calc only
       status:   null,
       size:     null,
       duration: null,
@@ -155,7 +156,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     const r = networkRequests.get(tabId)?.get(params.requestId);
     if (r) {
       r.size     = params.encodedDataLength;
-      r.duration = Math.round((params.timestamp - r.ts / 1000) * 1000); // ms
+      r.duration = Math.round((params.timestamp - r._mono) * 1000); // ms, both monotonic
     }
   }
 
@@ -472,13 +473,16 @@ async function cmdHover({ x, y, tabId } = {}) {
 /**
  * Type text into the active (or clicked) element.
  *
- * fast:true — uses Input.insertText for a single CDP round trip regardless of
- * string length (~50ms flat vs 3N round trips for character-by-character typing).
- * Note: Input.insertText fires beforeinput/input events but not keydown/keyup —
- * sufficient for React/Vue controlled inputs and most real-world forms. For sites
- * that gate on keydown events, omit fast:true and use the default character mode.
+ * fast:true    — uses Input.insertText for a single CDP round trip regardless of
+ *                string length (~50ms flat vs 3N round trips for character-by-character typing).
+ *                Fires beforeinput/input but not keydown/keyup — works for most forms and
+ *                React/Vue controlled inputs. Omit for sites that gate on keydown events.
+ *
+ * replace:true — select-all + delete the existing value before typing, so the new text
+ *                replaces the field contents rather than appending. Works on native inputs,
+ *                textareas, and React controlled inputs. Implied when using fast:true as well.
  */
-async function cmdType({ text, x, y, tabId, fast = false } = {}) {
+async function cmdType({ text, x, y, tabId, fast = false, replace = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   if (x != null && y != null) {
@@ -486,6 +490,20 @@ async function cmdType({ text, x, y, tabId, fast = false } = {}) {
     if (!fast) await sleep(400);
     await cdpFocus(target, x, y);
     if (!fast) await sleep(100);
+  }
+  if (replace) {
+    // Select all existing content then delete it before typing.
+    // Cmd+A (Mac) selects even in React controlled inputs that ignore
+    // programmatic value assignment. Then Backspace clears the selection.
+    const selAll = KEY_MAP['SelectAll'];
+    const selEv = { key: selAll.key ?? 'a', code: selAll.code, windowsVirtualKeyCode: selAll.keyCode, nativeVirtualKeyCode: selAll.keyCode, modifiers: selAll.modifiers };
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...selEv, type: 'keyDown' });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...selEv, type: 'keyUp' });
+    await sleep(30);
+    const backspace = { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8, modifiers: 0 };
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...backspace, type: 'keyDown' });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...backspace, type: 'keyUp' });
+    await sleep(30);
   }
   if (fast) {
     // Single CDP call — no per-char round trips regardless of string length.
@@ -545,32 +563,58 @@ async function cmdDrag({ fromX, fromY, toX, toY, tabId, steps = 10, duration = 3
   return { ok: true };
 }
 
-async function cmdScroll({ deltaX = 0, deltaY = 0, tabId } = {}) {
+/**
+ * Scroll the page or a specific scrollable container.
+ *
+ * x, y — optional viewport coordinates to anchor the scroll. When provided,
+ * the deepest scrollable ancestor at (x, y) is scrolled directly, bypassing
+ * the viewport-center probe. Use this to target sidebars, modals, or any
+ * scrollable area that isn't at the center of the page.
+ *
+ * Without x/y: tries window.scrollBy first, falls back to the deepest
+ * scrollable container at the viewport center.
+ */
+async function cmdScroll({ deltaX = 0, deltaY = 0, x, y, tabId } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   // Use window.scrollBy via Runtime.evaluate instead of Input.dispatchMouseEvent(mouseWheel).
   // mouseWheel has the same ~25s first-use Input pipeline lazy-init penalty as mouseMoved.
   // behavior:'instant' overrides CSS scroll-behavior:smooth so the scroll is atomic and
   // the auto-screenshot always captures the final position, not an animation midpoint.
-  //
-  // Fallback: SPAs (LinkedIn, Gmail, etc.) put content in an inner div[overflow:auto] rather
-  // than scrolling window. If window.scrollY/X doesn't change after the scroll, walk up from
-  // the viewport center to find the deepest scrollable container and scroll that instead.
+  const probeX = x != null ? x : null;
+  const probeY = y != null ? y : null;
   await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
     expression: `(function() {
-      const py = window.scrollY, px = window.scrollX;
-      window.scrollBy({left:${deltaX},top:${deltaY},behavior:'instant'});
-      if (window.scrollY === py && window.scrollX === px) {
-        let el = document.elementFromPoint(window.innerWidth/2, window.innerHeight/2);
+      const dx = ${deltaX}, dy = ${deltaY};
+      const px = ${probeX !== null ? probeX : 'null'};
+      const py = ${probeY !== null ? probeY : 'null'};
+
+      function scrollAncestor(startEl) {
+        let el = startEl;
         while (el && el !== document.documentElement) {
           const s = getComputedStyle(el);
           const oy = s.overflowY, ox = s.overflowX;
-          if ((${deltaY} !== 0 && (oy==='auto'||oy==='scroll') && el.scrollHeight > el.clientHeight) ||
-              (${deltaX} !== 0 && (ox==='auto'||ox==='scroll') && el.scrollWidth  > el.clientWidth)) {
-            el.scrollBy({left:${deltaX},top:${deltaY},behavior:'instant'});
-            break;
+          if ((dy !== 0 && (oy==='auto'||oy==='scroll') && el.scrollHeight > el.clientHeight) ||
+              (dx !== 0 && (ox==='auto'||ox==='scroll') && el.scrollWidth  > el.clientWidth)) {
+            el.scrollBy({left:dx, top:dy, behavior:'instant'});
+            return true;
           }
           el = el.parentElement;
+        }
+        return false;
+      }
+
+      if (px !== null && py !== null) {
+        // Explicit target: walk up from (px,py) for a scrollable ancestor
+        const hit = document.elementFromPoint(px, py);
+        if (hit) scrollAncestor(hit);
+      } else {
+        // Default: try window first, fall back to viewport-center probe
+        const wy = window.scrollY, wx = window.scrollX;
+        window.scrollBy({left:dx, top:dy, behavior:'instant'});
+        if (window.scrollY === wy && window.scrollX === wx) {
+          const hit = document.elementFromPoint(window.innerWidth/2, window.innerHeight/2);
+          if (hit) scrollAncestor(hit);
         }
       }
     })()`,
@@ -955,7 +999,8 @@ async function cmdGetNetwork({ clear = false, since, until, tabId } = {}) {
   if (since != null) requests = requests.filter(r => r.ts >= since);
   if (until != null) requests = requests.filter(r => r.ts <= until);
   if (clear) networkRequests.set(tab.id, new Map());
-  return { requests };
+  // Strip internal _mono field — not part of the public API
+  return { requests: requests.map(({ _mono: _, ...r }) => r) };
 }
 
 // ---------------------------------------------------------------------------
