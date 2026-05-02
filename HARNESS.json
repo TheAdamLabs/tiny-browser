@@ -1,11 +1,15 @@
 {
   "goal": "Fix 3 issues: filter extension URL noise from get_console/get_network, add level filter to get_console, add frame_selector for same-origin iframe interaction",
   "items": [
-    { "issue": "get_console returns 80%+ noise from other extensions' content scripts (chrome-extension:// URLs)", "done": false },
-    { "issue": "get_network includes chrome-extension:// requests (extension content script loads)", "done": false },
-    { "issue": "No level filter on get_console — can't ask 'any errors?' cleanly", "done": false },
-    { "issue": "find_element/click_element/type can't reach elements inside same-origin iframes", "done": false }
+    { "issue": "get_console returns 80%+ noise from other extensions' content scripts (chrome-extension:// URLs)", "done": true },
+    { "issue": "get_network includes chrome-extension:// requests (extension content script loads)", "done": true },
+    { "issue": "No level filter on get_console — can't ask 'any errors?' cleanly", "done": true },
+    { "issue": "find_element/click_element/type can't reach elements inside same-origin iframes", "done": true }
   ],
-  "assertions": [],
-  "log": []
+  "assertions": [
+    "npm test"
+  ],
+  "log": [
+    "Attempt 1 [PASS]: All 4 items implemented and live-verified. console noise: 0 ext entries on example.com (was 8/9). include_extensions:true opt-in restores them. level filter: {'error'} returns only errors. network noise: 0 ext requests on page load (was 1). iframe find_element: found INPUT at correct viewport coords. iframe type replace:true: input value changed from 'oldval' to 'newval'. TinyMCE read-only iframe reverts DOM changes (not a bug in our code — TinyMCE watches mutations)."
+  ]
 }

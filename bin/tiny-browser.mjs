@@ -61,9 +61,9 @@ const COMMANDS = [
   },
   {
     name: 'click_element',
-    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"tabId":N]}',
+    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"frame_selector":"css","tabId":N]}',
     returns: '{"found":true,"x":N,"y":N,"tag":"BUTTON","text":"...","screenshot":"..."}',
-    desc: 'Find an interactive element by text or CSS selector and click its centre. Scrolls into view automatically. Falls back to shadow DOM if light DOM returns nothing. Use x_max/within_selector to disambiguate duplicate text.',
+    desc: 'Find an interactive element by text or CSS selector and click its centre. Scrolls into view automatically. Falls back to shadow DOM if light DOM returns nothing. Use frame_selector to target elements inside a same-origin <iframe>. Use x_max/within_selector to disambiguate duplicate text.',
     auto_screenshot: true,
   },
   {
@@ -75,9 +75,9 @@ const COMMANDS = [
   },
   {
     name: 'type',
-    params: '{"text":"value"[,"x":N,"y":N,"fast":bool,"replace":bool,"tabId":N]}',
+    params: '{"text":"value"[,"x":N,"y":N,"fast":bool,"replace":bool,"frame_selector":"css","tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Type text. Set fast:true to use Input.insertText — a single CDP round trip for any string length (~50ms flat vs character-by-character). fast:true fires input/beforeinput events but not keydown/keyup; works for most forms including React. Set replace:true to select-all and delete existing field content before typing (prevents appending). Omit x/y to type into the currently focused element.',
+    desc: 'Type text. Set fast:true to use Input.insertText — a single CDP round trip for any string length (~50ms flat vs character-by-character). fast:true fires input/beforeinput events but not keydown/keyup; works for most forms including React. Set replace:true to select-all and delete existing field content before typing (prevents appending). Use frame_selector to type into the active/first input inside a same-origin <iframe> (fires input+change events). Omit x/y to type into the currently focused element.',
     auto_screenshot: true,
   },
   {
@@ -110,9 +110,9 @@ const COMMANDS = [
   },
   {
     name: 'find_element',
-    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"tabId":N]}',
+    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"frame_selector":"css","tabId":N]}',
     returns: '{"found":true,"x":N,"y":N,"tag":"BUTTON","text":"...","href":"..."}',
-    desc: 'Find element and return its viewport centre coordinates without clicking. Pierces shadow DOM automatically. Use x/y with /click for custom click logic.',
+    desc: 'Find element and return its viewport centre coordinates without clicking. Pierces shadow DOM automatically. Use frame_selector to scope to a same-origin <iframe> (e.g. "#payment-iframe"). Returned x/y are main-viewport coordinates, usable directly with /click.',
     auto_screenshot: false,
   },
   {
@@ -173,16 +173,16 @@ const COMMANDS = [
   },
   {
     name: 'get_network',
-    params: '[{"since":unixMs,"until":unixMs,"clear":bool,"tabId":N}]',
+    params: '[{"since":unixMs,"until":unixMs,"clear":bool,"include_extensions":bool,"tabId":N}]',
     returns: '{"requests":[{"method":"...","url":"...","status":N,"type":"XHR","size":N,"duration":N,"ts":N}]}',
-    desc: 'Return buffered network requests. Use since/until (Unix ms) to filter to a time window. clear resets the buffer.',
+    desc: 'Return buffered network requests. chrome-extension:// requests are filtered out by default (set include_extensions:true to include them). Use since/until (Unix ms) to filter to a time window. clear resets the buffer.',
     auto_screenshot: false,
   },
   {
     name: 'get_console',
-    params: '[{"since":unixMs,"until":unixMs,"clear":bool,"tabId":N}]',
+    params: '[{"since":unixMs,"until":unixMs,"level":"error","clear":bool,"include_extensions":bool,"tabId":N}]',
     returns: '{"entries":[{"level":"error","text":"...","url":"...","line":N,"ts":N}]}',
-    desc: 'Return buffered console entries (log/info/warn/error/debug + uncaught exceptions). ts is Unix ms. Captured automatically from debugger attach.',
+    desc: 'Return buffered console entries (log/info/warn/error/debug + uncaught exceptions). ts is Unix ms. chrome-extension:// entries are filtered out by default (set include_extensions:true to include them). Use level to filter by severity — e.g. "error" or ["error","warning"].',
     auto_screenshot: false,
   },
 ];

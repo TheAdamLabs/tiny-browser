@@ -337,8 +337,40 @@ async function humanTypeKey(target, char) {
 //   6. Among matches, pick the *smallest* element by bounding area.
 // ---------------------------------------------------------------------------
 
+/**
+ * Build context variables for iframe-scoped evaluations.
+ *
+ * Returns three JS snippets to inline into an IIFE:
+ *   iframeSetup — declares _iframeDoc and _iframeOff; returns null early if
+ *                 the iframe is missing or cross-origin.
+ *   docRef      — the document reference string to pass into buildFindExpr.
+ *   offsetRef   — object with .x/.y for translating iframe-relative coords to
+ *                 main-frame viewport coords.
+ *
+ * When frame_selector is null, returns the no-op (top-level document) variant.
+ */
+function buildIframeContext(frame_selector) {
+  if (!frame_selector) {
+    return { iframeSetup: '', docRef: 'document', offsetRef: '{x:0,y:0}' };
+  }
+  const sel = JSON.stringify(frame_selector);
+  return {
+    iframeSetup: `
+      const _iframe = document.querySelector(${sel});
+      if (!_iframe) return null;
+      let _iframeDoc;
+      try { _iframeDoc = _iframe.contentDocument; } catch(_) { return null; }
+      if (!_iframeDoc) return null;
+      const _iframeRect = _iframe.getBoundingClientRect();
+      const _iframeOff = { x: _iframeRect.left, y: _iframeRect.top };
+    `,
+    docRef: '_iframeDoc',
+    offsetRef: '_iframeOff',
+  };
+}
+
 function buildFindExpr(selector, text, exact = false, opts = {}) {
-  const { x_max, within_selector, nth = 0, visible_only = false } = opts;
+  const { x_max, within_selector, nth = 0, visible_only = false, docRef = 'document' } = opts;
 
   // Helper: collect all elements matching `sel` in `root`, then recurse into shadow roots
   const collectFn = `
@@ -360,8 +392,8 @@ function buildFindExpr(selector, text, exact = false, opts = {}) {
       let el = null;
       try {
         const scope = ${within_selector
-          ? `document.querySelector(${JSON.stringify(within_selector)}) ?? document`
-          : 'document'};
+          ? `(${docRef}.querySelector(${JSON.stringify(within_selector)}) ?? ${docRef})`
+          : docRef};
         el = Array.from(scope.querySelectorAll(${JSON.stringify(selector)}))[${nth}] ?? null;
         if (!el) {
           el = collectAll(scope, ${JSON.stringify(selector)})[${nth}] ?? null;
@@ -388,8 +420,9 @@ function buildFindExpr(selector, text, exact = false, opts = {}) {
       ${x_max != null ? `.filter(el => el.getBoundingClientRect().x < ${x_max})` : ''}
       .filter(el => {
         // Skip elements covered by an overlay — elementFromPoint must reach this element.
+        // Use the ownerDocument so this works in iframe scopes too.
         const r = el.getBoundingClientRect();
-        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const top = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
         return top != null && (top === el || el.contains(top));
       })`;
 
@@ -400,8 +433,8 @@ function buildFindExpr(selector, text, exact = false, opts = {}) {
       })[${n}] ?? null`;
 
   const scope = within_selector
-    ? `(document.querySelector(${JSON.stringify(within_selector)}) ?? document)`
-    : 'document';
+    ? `(${docRef}.querySelector(${JSON.stringify(within_selector)}) ?? ${docRef})`
+    : docRef;
 
   return `(() => {
     ${collectFn}
@@ -473,18 +506,56 @@ async function cmdHover({ x, y, tabId } = {}) {
 /**
  * Type text into the active (or clicked) element.
  *
- * fast:true    — uses Input.insertText for a single CDP round trip regardless of
- *                string length (~50ms flat vs 3N round trips for character-by-character typing).
- *                Fires beforeinput/input but not keydown/keyup — works for most forms and
- *                React/Vue controlled inputs. Omit for sites that gate on keydown events.
+ * fast:true         — uses Input.insertText for a single CDP round trip regardless of
+ *                     string length (~50ms flat vs 3N round trips for character-by-character typing).
+ *                     Fires beforeinput/input but not keydown/keyup — works for most forms and
+ *                     React/Vue controlled inputs. Omit for sites that gate on keydown events.
  *
- * replace:true — select-all + delete the existing value before typing, so the new text
- *                replaces the field contents rather than appending. Works on native inputs,
- *                textareas, and React controlled inputs. Implied when using fast:true as well.
+ * replace:true      — select-all + delete the existing value before typing, so the new text
+ *                     replaces the field contents rather than appending. Works on native inputs,
+ *                     textareas, and React controlled inputs.
+ *
+ * frame_selector    — CSS selector for a same-origin <iframe>. When set, types into the
+ *                     focused element within that iframe using direct JS value injection
+ *                     (fires input + change events; works for React/Vue controlled inputs).
+ *                     Not supported for cross-origin iframes.
  */
-async function cmdType({ text, x, y, tabId, fast = false, replace = false } = {}) {
+async function cmdType({ text, x, y, tabId, fast = false, replace = false, frame_selector } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
+
+  // iframe mode: direct JS value injection into the iframe's focused/active element
+  if (frame_selector) {
+    const sel = JSON.stringify(frame_selector);
+    const textJson = JSON.stringify(text);
+    const replaceFlag = replace;
+    const { result, exceptionDetails } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+      expression: `(() => {
+        const iframe = document.querySelector(${sel});
+        if (!iframe) return JSON.stringify({ ok: false, error: 'iframe not found' });
+        let doc;
+        try { doc = iframe.contentDocument; } catch(_) { return JSON.stringify({ ok: false, error: 'cross-origin iframe' }); }
+        if (!doc) return JSON.stringify({ ok: false, error: 'cross-origin iframe' });
+        const el = doc.activeElement && doc.activeElement !== doc.body
+          ? doc.activeElement
+          : doc.querySelector('input, textarea, [contenteditable]');
+        if (!el) return JSON.stringify({ ok: false, error: 'no focusable element in iframe' });
+        if (typeof el.value !== 'undefined') {
+          el.value = ${replaceFlag} ? ${textJson} : (el.value + ${textJson});
+        } else if (el.isContentEditable) {
+          if (${replaceFlag}) el.textContent = '';
+          el.textContent += ${textJson};
+        }
+        el.dispatchEvent(new Event('input',  { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return JSON.stringify({ ok: true });
+      })()`,
+      returnByValue: true,
+    });
+    if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? 'JS error in iframe type');
+    return JSON.parse(result.value);
+  }
+
   if (x != null && y != null) {
     await humanClick(target, x, y);
     if (!fast) await sleep(400);
@@ -856,19 +927,22 @@ async function cmdKeyPress({ key, tabId } = {}) {
   return { ok: true };
 }
 
-async function cmdFindElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, tabId } = {}) {
+async function cmdFindElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, frame_selector, tabId } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   const opts = { x_max, within_selector, nth, visible_only };
+  const { iframeSetup, docRef, offsetRef } = buildIframeContext(frame_selector);
+
   const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
     expression: `(() => {
-      const el = ${buildFindExpr(selector, text, exact, opts)};
+      ${iframeSetup}
+      const el = ${buildFindExpr(selector, text, exact, { ...opts, docRef })};
       if (!el) return null;
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return null;
       return JSON.stringify({
-        x: Math.round(r.left + r.width / 2),
-        y: Math.round(r.top + r.height / 2),
+        x: Math.round(${offsetRef}.x + r.left + r.width / 2),
+        y: Math.round(${offsetRef}.y + r.top + r.height / 2),
         tag: el.tagName,
         text: (el.innerText ?? el.value ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 80),
         href: el.href ?? null,
@@ -886,22 +960,26 @@ async function cmdFindElement({ selector, text, exact = false, x_max, within_sel
  * find_element → click pattern where stale coordinates can miss small targets.
  *
  * Scrolls the element into view first so off-screen elements are reachable.
+ * frame_selector — CSS selector for a same-origin <iframe>; scopes find to
+ *                  that iframe's document and translates coords to main viewport.
  */
-async function cmdClickElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, tabId, precise = false } = {}) {
+async function cmdClickElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, frame_selector, tabId, precise = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
   const opts = { x_max, within_selector, nth, visible_only };
+  const { iframeSetup, docRef, offsetRef } = buildIframeContext(frame_selector);
   const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
     expression: `(() => {
-      const el = ${buildFindExpr(selector, text, exact, opts)};
+      ${iframeSetup}
+      const el = ${buildFindExpr(selector, text, exact, { ...opts, docRef })};
       if (!el) return null;
       // Bring into viewport before measuring — ensures coordinates are in-bounds
       el.scrollIntoView({ block: 'center', behavior: 'instant' });
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return null;
       return JSON.stringify({
-        x: Math.round(r.left + r.width / 2),
-        y: Math.round(r.top + r.height / 2),
+        x: Math.round(${offsetRef}.x + r.left + r.width / 2),
+        y: Math.round(${offsetRef}.y + r.top + r.height / 2),
         tag: el.tagName,
         text: (el.innerText ?? el.value ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 80),
       });
@@ -967,14 +1045,25 @@ async function cmdWaitForElement({ selector, text, exact = false, within_selecto
 
 /**
  * Return buffered console entries for a tab.
- * since/until are Unix ms — filter to entries in that window.
- * clear resets the full buffer regardless of the time filter.
+ *
+ * since/until       — Unix ms window filter.
+ * level             — string or array of strings; only return entries matching
+ *                     these levels (e.g. "error", ["error","warning"]).
+ * include_extensions — include entries from chrome-extension:// URLs (other
+ *                     extensions' content scripts). Default false — these are
+ *                     almost always noise ("content script loaded" spam).
+ * clear             — reset the full buffer regardless of other filters.
  */
-async function cmdGetConsole({ clear = false, since, until, tabId } = {}) {
+async function cmdGetConsole({ clear = false, since, until, level, include_extensions = false, tabId } = {}) {
   const tab = await resolveTab({ tabId });
   let entries = consoleLogs.get(tab.id) ?? [];
   if (since != null) entries = entries.filter(e => e.ts >= since);
   if (until != null) entries = entries.filter(e => e.ts <= until);
+  if (!include_extensions) entries = entries.filter(e => !(e.url ?? '').startsWith('chrome-extension://'));
+  if (level != null) {
+    const levels = Array.isArray(level) ? level : [level];
+    entries = entries.filter(e => levels.includes(e.level));
+  }
   if (clear) consoleLogs.set(tab.id, []);
   return { entries };
 }
@@ -995,14 +1084,18 @@ async function cmdEnableNetwork(params = {}) {
 
 /**
  * Return buffered network requests for a tab.
- * since/until are Unix ms (request start time).
- * clear resets the full buffer regardless of the time filter.
+ *
+ * since/until        — Unix ms window filter (request start time).
+ * include_extensions — include chrome-extension:// requests (other extensions'
+ *                      content script loads). Default false — noise for agents.
+ * clear              — reset the full buffer regardless of other filters.
  */
-async function cmdGetNetwork({ clear = false, since, until, tabId } = {}) {
+async function cmdGetNetwork({ clear = false, since, until, include_extensions = false, tabId } = {}) {
   const tab = await resolveTab({ tabId });
   let requests = Array.from(networkRequests.get(tab.id)?.values() ?? []);
   if (since != null) requests = requests.filter(r => r.ts >= since);
   if (until != null) requests = requests.filter(r => r.ts <= until);
+  if (!include_extensions) requests = requests.filter(r => !r.url.startsWith('chrome-extension://'));
   if (clear) networkRequests.set(tab.id, new Map());
   // Strip internal _mono field — not part of the public API
   return { requests: requests.map(({ _mono: _, ...r }) => r) };
