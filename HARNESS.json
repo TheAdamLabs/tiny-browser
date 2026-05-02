@@ -1,0 +1,11 @@
+{
+  "goal": "Fix 3 issues: filter extension URL noise from get_console/get_network, add level filter to get_console, add frame_selector for same-origin iframe interaction",
+  "items": [
+    { "issue": "get_console returns 80%+ noise from other extensions' content scripts (chrome-extension:// URLs)", "done": false },
+    { "issue": "get_network includes chrome-extension:// requests (extension content script loads)", "done": false },
+    { "issue": "No level filter on get_console — can't ask 'any errors?' cleanly", "done": false },
+    { "issue": "find_element/click_element/type can't reach elements inside same-origin iframes", "done": false }
+  ],
+  "assertions": [],
+  "log": []
+}
