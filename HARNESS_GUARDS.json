@@ -22,5 +22,29 @@
     "assertions": [
       "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('probeX') && !s.includes('scrollAncestor')) { console.error('scroll x/y targeting missing'); process.exit(1); }\""
     ]
+  },
+  {
+    "goal": "get_console filters chrome-extension:// entries by default",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('chrome-extension://') || !s.includes('include_extensions')) { console.error('extension URL filtering missing from get_console'); process.exit(1); }\""
+    ]
+  },
+  {
+    "goal": "get_network filters chrome-extension:// requests by default",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); const idx=s.indexOf('async function cmdGetNetwork'); if(idx===-1||!s.slice(idx,idx+600).includes('chrome-extension://')) { console.error('extension URL filtering missing from get_network'); process.exit(1); }\""
+    ]
+  },
+  {
+    "goal": "get_console accepts level filter param",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('levels.includes(e.level)')) { console.error('level filter missing from get_console'); process.exit(1); }\""
+    ]
+  },
+  {
+    "goal": "find_element and click_element accept frame_selector for same-origin iframes",
+    "assertions": [
+      "node -e \"const s=require('fs').readFileSync('extension/background.js','utf8'); if(!s.includes('buildIframeContext') || !s.includes('frame_selector')) { console.error('frame_selector / buildIframeContext missing'); process.exit(1); }\""
+    ]
   }
 ]
