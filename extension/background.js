@@ -492,17 +492,22 @@ async function cmdType({ text, x, y, tabId, fast = false, replace = false } = {}
     if (!fast) await sleep(100);
   }
   if (replace) {
-    // Select all existing content then delete it before typing.
-    // Cmd+A (Mac) selects even in React controlled inputs that ignore
-    // programmatic value assignment. Then Backspace clears the selection.
-    const selAll = KEY_MAP['SelectAll'];
-    const selEv = { key: selAll.key ?? 'a', code: selAll.code, windowsVirtualKeyCode: selAll.keyCode, nativeVirtualKeyCode: selAll.keyCode, modifiers: selAll.modifiers };
-    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...selEv, type: 'keyDown' });
-    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...selEv, type: 'keyUp' });
-    await sleep(30);
-    const backspace = { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8, modifiers: 0 };
-    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...backspace, type: 'keyDown' });
-    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { ...backspace, type: 'keyUp' });
+    // Select all existing content via the DOM API, which is more reliable than
+    // dispatching Cmd+A — CDP modifier+key combos don't consistently trigger
+    // browser select-all in all input types. el.select() works on INPUT/TEXTAREA;
+    // execCommand('selectAll') covers contentEditable and other elements.
+    // The first typed character (or Input.insertText) then replaces the selection.
+    await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+      expression: `(() => {
+        const el = document.activeElement;
+        if (!el) return;
+        if (typeof el.select === 'function') {
+          el.select();
+        } else {
+          document.execCommand('selectAll');
+        }
+      })()`,
+    });
     await sleep(30);
   }
   if (fast) {
