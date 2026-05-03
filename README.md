@@ -79,6 +79,15 @@ The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
+### Detection quality improvements (v0.6)
+
+| Fix | What changed |
+|---|---|
+| Duplicate card dedup | Equal-size overlapping card pairs (e.g. parent wrapper + child with identical text) now emit only one item — first wins |
+| Huge off-viewport cards filtered | Elements taller than 2× the viewport (`r.height > innerHeight * 2`) are excluded — catches full-page blog-content wrappers whose top happens to be in-viewport |
+| Layout-grid divs excluded | `div.col-*`, `div.row`, `div.container`, `div.wrapper` are never card candidates — semantic siblings (`<article>`, `<figure>`) now correctly appear as leaf cards |
+| `cursor:pointer` sibling / child dedup | Pass-4 non-standard click targets now dedup their own inner children (e.g. Vuetify `v-chip` + `v-chip__content`) and same-position sibling clones |
+
 ### New commands / improvements (v0.5)
 
 | Change | What it does |

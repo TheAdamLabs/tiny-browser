@@ -127,9 +127,20 @@ function detectBoxes({ draw = false } = {}) {
     return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el), ...metaOf(el) }];
   });
 
-  const controls = rawControls.filter((c, _, arr) =>
-    !arr.some(o => o !== c && o.el.contains(c.el) && overlaps(o.rect, c.rect) > 0.85)
-  );
+  const controls = rawControls
+    // Remove child when a parent tightly wraps it (ancestor dedup)
+    .filter((c, _, arr) =>
+      !arr.some(o => o !== c && o.el.contains(c.el) && overlaps(o.rect, c.rect) > 0.85)
+    )
+    // Remove sibling duplicates at nearly the same position with identical text
+    // (e.g. range-slider tick labels rendered as two <span>s, offset by ~1px)
+    .filter((c, i, arr) => !arr.some((o, j) => {
+      if (j >= i) return false;
+      if (o.text !== c.text) return false;
+      const dx = Math.abs((o.rect.left + o.rect.width / 2) - (c.rect.left + c.rect.width / 2));
+      const dy = Math.abs((o.rect.top + o.rect.height / 2) - (c.rect.top + c.rect.height / 2));
+      return dx <= 4 && dy <= 4;
+    }));
 
   // ── PASS 2: CARDS ────────────────────────────────────────────────────────────
   const CARD_CLASS_RE = /\b(card|box|panel|feature|item|widget|block|tile|entry|post|product|article|teaser|promo|result|row--)\b/i;
@@ -158,11 +169,18 @@ function detectBoxes({ draw = false } = {}) {
     return headings.length >= 2 || (headings.length >= 1 && paras.length >= 1);
   };
 
+  // Bare layout/grid class names that are structural containers, never content cards.
+  const LAYOUT_CLASS_RE = /^(row|col(-\d+)?|container(-fluid)?|wrapper|layout|grid(-item)?)$/i;
+
   const isLayoutWrapper = (el, r) => {
     if (r.width > innerWidth * 0.96) return true;
+    // Elements taller than 2× the viewport are content containers, not cards.
+    if (r.height > innerHeight * 2) return true;
     const tag = el.tagName.toLowerCase();
     if (['main','header','footer','nav','body','html'].includes(tag)) return true;
     if (tag === 'section' && r.width > innerWidth * 0.85) return true;
+    // Grid/layout divs: div.col-12, div.row, div.container, div.wrapper etc.
+    if (tag === 'div' && [...el.classList].some(c => LAYOUT_CLASS_RE.test(c))) return true;
     return false;
   };
 
@@ -194,31 +212,27 @@ function detectBoxes({ draw = false } = {}) {
   });
 
   // Keep only "leaf" card candidates: elements that don't contain other card candidates.
-  // Exception: keep a parent if it has meaningful text AND all its card children are
-  // same-size layout wrappers with no independent text (e.g. GitHub blog featured card
-  // wrapped in a full-size col-12 div).
+  // Grid/layout wrapper divs (col-*, row, container) are excluded from allCardCandidates
+  // via isLayoutWrapper, so semantic elements like <article> become natural leaves.
   const innermostCards = allCardCandidates.filter(el => {
     const children = allCardCandidates.filter(o => o !== el && el.contains(o));
-    if (children.length === 0) return true;
-    const elText = textOf(el).trim();
-    const childrenWithOwnText = children.filter(c => {
-      const ct = textOf(c).trim();
-      // "own text" means the child adds different/shorter text than parent — i.e. it's
-      // not just a same-content wrapper but a genuinely distinct nested card.
-      return ct.length > 10 && ct !== elText && ct.length < elText.length * 0.95;
-    });
-    // If every child candidate is a same-content layout wrapper, keep the parent.
-    return childrenWithOwnText.length === 0;
+    return children.length === 0;
   });
 
-  const dedupedCards = innermostCards.filter((el, _, arr) => {
+  const dedupedCards = innermostCards.filter((el, i, arr) => {
     const r = el.getBoundingClientRect();
-    return !arr.some(other => {
+    const ra  = { left:r.left,  right:r.right,  top:r.top,  bottom:r.bottom,  width:r.width,  height:r.height };
+    return !arr.some((other, j) => {
       if (other === el) return false;
       const or = other.getBoundingClientRect();
-      const ra  = { left:r.left,  right:r.right,  top:r.top,  bottom:r.bottom,  width:r.width,  height:r.height };
       const orr = { left:or.left, right:or.right, top:or.top, bottom:or.bottom, width:or.width, height:or.height };
-      return overlaps(ra, orr) > 0.60 && area(orr) < area(ra);
+      if (overlaps(ra, orr) <= 0.60) return false;
+      // Remove el if a strictly smaller overlapping card exists (keep innermost)
+      if (area(orr) < area(ra)) return true;
+      // Remove el if an approximately same-size overlapping card appears earlier
+      // (eliminates wrapper/content div pairs with identical rendered size)
+      const areaRatio = area(orr) / Math.max(1, area(ra));
+      return areaRatio >= 0.95 && areaRatio <= 1.05 && j < i;
     });
   });
 
@@ -243,7 +257,7 @@ function detectBoxes({ draw = false } = {}) {
   // Catch custom click targets (<p>, <div>, <span> styled as buttons/close icons)
   // that don't use semantic interactive elements.
   const ctrlRects = controls.map(c => c.rect);
-  const clickableNonStd = [...document.querySelectorAll('p,span,li,td,th,div,h1,h2,h3,h4,h5,h6')].flatMap(el => {
+  const clickableNonStdRaw = [...document.querySelectorAll('p,span,li,td,th,div,h1,h2,h3,h4,h5,h6')].flatMap(el => {
     if (!visible(el)) return [];
     const r = getRect(el);
     if (!inViewport(r)) return [];
@@ -260,6 +274,19 @@ function detectBoxes({ draw = false } = {}) {
     if (dedupedCards.includes(el)) return [];
     return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el), ...metaOf(el) }];
   });
+  // Dedup Pass-4 items: remove children of earlier Pass-4 items and sibling duplicates
+  // (e.g. v-chip outer + v-chip__content inner both have cursor:pointer and same text)
+  const clickableNonStd = clickableNonStdRaw
+    .filter((c, _, arr) =>
+      !arr.some(o => o !== c && o.el.contains(c.el) && overlaps(o.rect, c.rect) > 0.85)
+    )
+    .filter((c, i, arr) => !arr.some((o, j) => {
+      if (j >= i) return false;
+      if (o.text !== c.text) return false;
+      const dx = Math.abs((o.rect.left + o.rect.width / 2) - (c.rect.left + c.rect.width / 2));
+      const dy = Math.abs((o.rect.top + o.rect.height / 2) - (c.rect.top + c.rect.height / 2));
+      return dx <= 4 && dy <= 4;
+    }));
 
   // ── MERGE, INDEX, ADD id ──────────────────────────────────────────────────────
   // id = visualization label: C0, C1… for controls; K0, K1… for cards; I0, I1… for images
