@@ -4,8 +4,8 @@ description: >-
   Run the full test-and-improve iteration loop for tiny-browser-mcp against a
   target website. Use when asked to "test and improve", "test on <site>", "run
   the improvement loop", or "find and fix issues". Each iteration is fully
-  autonomous across all six phases: sweep → functional tests → classify →
-  fix → retest → document and commit.
+  autonomous across all seven phases: sweep → functional tests → classify →
+  fix → retest → document and commit → cleanup.
 ---
 
 # Browser Test-and-Improve Loop
@@ -89,6 +89,36 @@ git add -A
 git commit -m "fix/feat: <summary>"
 git push
 ```
+
+## Phase 7 — Cleanup
+
+Close all tabs opened during the iteration in one Python batch. Keep only tabs that were open before the iteration started (i.e. don't close the user's pre-existing tabs).
+
+```python
+import subprocess, json
+
+# Collect tab IDs opened during the sweep (stored in /tmp/*_tabs.json)
+# and any additional tabs opened during functional tests.
+r = subprocess.run(["tiny-browser","list_tabs",'{}'], capture_output=True, text=True)
+all_tabs = json.loads(r.stdout)
+
+# Close tabs by the URLs opened during this iteration — never close
+# chrome://, about:, or tabs not matching the test target domain(s).
+test_urls = [
+    "the-internet.herokuapp.com",
+    "jqueryui",
+    # add other domains used in this iteration
+]
+to_close = [t for t in all_tabs
+            if any(u in t.get("url","") for u in test_urls)]
+for t in to_close:
+    subprocess.run(["tiny-browser","close_tab",json.dumps({"tabId":t["tabId"]})],
+                   capture_output=True, text=True)
+    print(f"closed {t['tabId']} {t['url'][:60]}")
+print(f"Closed {len(to_close)} test tabs.")
+```
+
+Rule: **never close tabs whose URL contains `chrome://`, `about:`, or the user's personal apps** (Gmail, GitHub, Linear, etc.) — only close tabs that match the target test domain(s) opened during this iteration.
 
 ## Key files
 
