@@ -14,7 +14,7 @@ Each iteration is fully autonomous — do not stop between phases to ask for dir
 
 ## Phase 1 — Sweep
 
-Open all relevant pages as background tabs in one Python batch. Run `detect_boxes` on every tab in the same batch. Print a summary table:
+Open all relevant pages as background tabs in one Python batch. Run `detect_boxes` with `draw:true` on every tab in the same batch — this paints the bounding-box overlays directly on each page so you can switch to any tab and see exactly what was detected. Print a summary table:
 
 ```
 page_name   (N items)
@@ -74,7 +74,7 @@ Common root causes:
 
 ## Phase 5 — Retest
 
-Open **fresh tabs** (stale after server restart). Re-run `detect_boxes` on all previously-broken pages. Run functional tests for each fix. Confirm no regressions.
+Open **fresh tabs** (stale after server restart). Re-run `detect_boxes` with `draw:true` on all previously-broken pages. Run functional tests for each fix. Confirm no regressions.
 
 ## Phase 6 — Document & Commit
 
@@ -134,6 +134,6 @@ Rule: **never close tabs whose URL contains `chrome://`, `about:`, or the user's
 ## Parallelism rules
 
 - Open all tabs in one Python script
-- Run `detect_boxes` on all tabs in one Python batch
+- Run `detect_boxes` with `draw:true` on all tabs in one Python batch — `{"tabId": id, "draw": true}`
 - Chain independent functional tests with `&&` in the same shell call
 - Never loop tab IDs in bash — use Python for dynamic data
