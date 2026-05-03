@@ -11,11 +11,17 @@ function detectBoxes({ draw = false } = {}) {
     return s.display !== 'none' && s.visibility !== 'hidden' && +s.opacity > 0.1;
   };
 
-  const textOf = el =>
-    (el.getAttribute('aria-label') || el.getAttribute('placeholder') ||
-     el.getAttribute('alt') || el.getAttribute('title') ||
-     el.innerText?.trim() || el.textContent?.trim() || '')
+  const textOf = el => {
+    // For labeled form controls, find the associated <label> (by for/id or wrapping element)
+    // before falling back to the element's own text. This surfaces checkbox and radio text.
+    const forLabel = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null;
+    const wrapLabel = el.closest('label');
+    return (el.getAttribute('aria-label') || el.getAttribute('placeholder') ||
+            el.getAttribute('alt') || el.getAttribute('title') ||
+            forLabel?.textContent?.trim() || wrapLabel?.textContent?.trim() ||
+            el.innerText?.trim() || el.textContent?.trim() || '')
       .replace(/\s+/g, ' ').slice(0, 200);
+  };
 
   const pathOf = el => {
     const parts = [];
@@ -64,7 +70,11 @@ function detectBoxes({ draw = false } = {}) {
     const elArea = area(r);
     const hasLabel = t.length > 2;
     const isLargeEnough = elArea > 800;
-    if (!hasLabel && !isLargeEnough) return [];
+    // Checkboxes and radios are always small but are valid interactive controls —
+    // include them regardless of area or label presence.
+    const isToggleControl = el.tagName === 'INPUT' &&
+      (el.type === 'checkbox' || el.type === 'radio');
+    if (!hasLabel && !isLargeEnough && !isToggleControl) return [];
     const isIconOnly = !t && el.querySelector('svg,img') && elArea < 1300;
     if (isIconOnly) return [];
     return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el) }];
