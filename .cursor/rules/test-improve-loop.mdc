@@ -1,0 +1,94 @@
+---
+description: Run the full test-and-improve iteration loop for tiny-browser-mcp against a target site
+alwaysApply: false
+---
+
+# Test-and-Improve Loop
+
+Use this procedure whenever asked to "test and improve", "test on <site>", or "run the improvement loop".
+
+## Phase 1 — Sweep
+
+Open all relevant pages as background tabs in parallel (one `new_tab` call per page). Then run `detect_boxes` on every tab in a single Python batch — one subprocess per tab, all in the same script. Print a summary table:
+
+```
+page_name   (N items)   [ERR: message if error]
+  C0  control  button   cx=88  cy=113  'Add Element'
+  ...
+```
+
+Flag any tab where:
+- `items == 0` (nothing detected on an interactive page)
+- An `error` field is present in the response
+- Controls that should be present are missing (use `query` to confirm they exist in the DOM)
+
+## Phase 2 — Functional Tests
+
+For each flagged page and each interaction pattern to verify, run targeted tests **in parallel** where independent:
+
+| Pattern | Test method |
+|---|---|
+| Click a button | `click` → `query` to confirm DOM state changed |
+| Checkbox/radio | `click` → `query el.checked` |
+| Type into input | `click` + `type` → `query el.value` |
+| Dynamic content | `click` trigger → `wait 3s` → `detect_boxes` again |
+| Right-click / context menu | `click '{"button":"right",...}'` in background with `&`, then `get_dialog` / `dismiss_dialog` |
+| Drag & drop | `drag` (html5:true for HTML5 DnD) |
+| File input | `set_file_input` |
+| Modal close | Look for cursor:pointer elements in boxes[] or use `query` for the rect |
+
+## Phase 3 — Classify Issues
+
+Bucket each problem into one of three categories:
+
+| Category | Description | Action |
+|---|---|---|
+| **Broken** | Command returns error / wrong result | Must fix |
+| **Suboptimal** | Works but requires workaround | Should fix |
+| **Limitation** | Fundamental CDP/browser constraint | Document in SKILL.md |
+
+Common fixable issues in this codebase:
+- Elements not detected by `detect_boxes` → fix `extension/page-extractor.js` (selector, area threshold, new detection pass)
+- CDP serialisation error on `detect_boxes` → check if `el` reference leaks into return value
+- Missing command param → add to `extension/background.js` + document in `bin/tiny-browser.mjs`
+
+## Phase 4 — Fix
+
+1. Edit `extension/page-extractor.js` for detection improvements
+2. Edit `extension/background.js` for new/extended commands
+3. Edit `bin/tiny-browser.mjs` for CLI/help catalogue
+4. Edit `SKILL.md` for workflow gotchas
+5. Run `npm run lint` — fix any errors before proceeding
+6. Run `npm install -g .` to update the global binary
+7. Restart the server: `pkill -f "node.*server.mjs"; tiny-browser &`
+8. Ask the user to **reload the Chrome extension** at `chrome://extensions` (background.js and page-extractor.js changes require this)
+
+## Phase 5 — Retest
+
+Open **fresh tabs** (old tabs may be stale after server restart). Re-run `detect_boxes` on all previously-broken pages. Run functional tests for each fixed scenario. Confirm no regressions on previously-passing pages.
+
+## Phase 6 — Commit
+
+```bash
+cd /Users/adam.pavlat/projects/personal/tiny-browser-mcp
+git add -A
+git commit -m "fix: <summary of what was fixed>"
+git push
+```
+
+## Key file locations
+
+| File | Role |
+|---|---|
+| `extension/page-extractor.js` | DOM element detection logic |
+| `extension/background.js` | CDP command handlers |
+| `bin/tiny-browser.mjs` | CLI entry point + COMMANDS catalogue |
+| `bin/server.mjs` | HTTP/WS server, AUTO_SCREENSHOT, AUTO_DETECT sets |
+| `SKILL.md` | Agent workflow docs and gotchas |
+
+## Parallelism notes
+
+- Always open multiple tabs in a single Python script (faster than sequential shell calls)
+- Run `detect_boxes` on all tabs in one Python batch
+- Independent functional tests can run in the same shell command via `&&` chaining
+- Never loop over tab IDs in bash — use Python for dynamic data

@@ -170,15 +170,39 @@ function detectBoxes({ draw = false } = {}) {
               text: el.getAttribute('alt') || '', rect: r, selector: pathOf(el) }];
   });
 
+  // ── PASS 4: CURSOR-POINTER NON-SEMANTIC ELEMENTS ──────────────────────────────
+  // Catch custom click targets (<p>, <div>, <span> styled as buttons/close icons)
+  // that don't use semantic interactive elements.
+  const ctrlRects = controls.map(c => c.rect);
+  const clickableNonStd = [...document.querySelectorAll('p,span,li,td,th,div,h1,h2,h3,h4,h5,h6')].flatMap(el => {
+    if (!visible(el)) return [];
+    const r = getRect(el);
+    if (!inViewport(r)) return [];
+    const elArea = area(r);
+    if (elArea < 100 || elArea > 50000) return [];
+    const t = textOf(el);
+    if (t.length < 3) return [];
+    if (getComputedStyle(el).cursor !== 'pointer') return [];
+    if (isLayoutWrapper(el, r)) return [];
+    // Skip if area is already covered by a standard control
+    if (ctrlRects.some(cr => overlaps(cr, r) > 0.5)) return [];
+    return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el) }];
+  });
+
   // ── MERGE, INDEX, ADD id ──────────────────────────────────────────────────────
   // id = visualization label: C0, C1… for controls; K0, K1… for cards; I0, I1… for images
   const kindPrefix = { control: 'C', card: 'K', image: 'I' };
   const kindCounters = { control: 0, card: 0, image: 0 };
 
-  const all = [...controls, ...cards, ...images].map((item, i) => {
+  // Strip `el` DOM reference before building the return value — keeping it in the
+  // serialized payload causes CDP "Object reference chain is too long" on pages
+  // with special input types (e.g. file inputs whose FileList chain is unserializable).
+  const all = [...controls, ...clickableNonStd, ...cards, ...images].map((item, i) => {
     const prefix = kindPrefix[item.kind] || 'X';
     const vizId = prefix + kindCounters[item.kind]++;
-    return { ...item, index: i, id: vizId };
+    // eslint-disable-next-line no-unused-vars
+    const { el: _, ...rest } = item;
+    return { ...rest, index: i, id: vizId };
   });
 
   // ── DRAW (optional — only when draw:true, for visual debugging) ───────────────

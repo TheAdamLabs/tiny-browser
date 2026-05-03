@@ -54,9 +54,9 @@ const COMMANDS = [
   },
   {
     name: 'click',
-    params: '{"x":N,"y":N[,"precise":bool,"tabId":N]}',
+    params: '{"x":N,"y":N[,"precise":bool,"button":"left"|"right"|"middle","tabId":N]}',
     returns: '{"ok":true,"boxes":[...],"screenshot":"..."}',
-    desc: 'Click at viewport coordinates. Get coordinates from detect_boxes (cx = rect.left + rect.width/2, cy = rect.top + rect.height/2) or from screenshot grid labels. Set precise:true for exact pixel targeting (data tables, grids); default adds human-like timing.',
+    desc: 'Click at viewport coordinates. Get coordinates from detect_boxes (cx = rect.left + rect.width/2, cy = rect.top + rect.height/2) or from screenshot grid labels. Set precise:true for exact pixel targeting (data tables, grids); default adds human-like timing. Use button:"right" for context menus.',
     auto_screenshot: true,
   },
   {

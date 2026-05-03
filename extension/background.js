@@ -368,7 +368,7 @@ async function cmdScreenshot(params = {}) {
   return { base64: res.data, dpr: dprResult?.value ?? 1 };
 }
 
-async function cmdClick({ x, y, tabId, precise = false } = {}) {
+async function cmdClick({ x, y, tabId, precise = false, button = 'left' } = {}) {
   const tab = await resolveTab({ tabId });
   // When targeting a specific tab, ensure it is active so the browser fires
   // JS synthetic events (click, mousedown, etc.). Background tabs receive the
@@ -377,7 +377,17 @@ async function cmdClick({ x, y, tabId, precise = false } = {}) {
     await chrome.tabs.update(tab.id, { active: true });
   }
   const target = await ensureDebugger(tab.id);
-  await humanClick(target, x, y, { precise });
+  if (button === 'left') {
+    await humanClick(target, x, y, { precise });
+  } else {
+    // Right / middle click — dispatch without human-like timing jitter
+    const btn = ['right', 'middle'].includes(button) ? button : 'left';
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
+      { type: 'mousePressed', x: Math.round(x), y: Math.round(y), button: btn, clickCount: 1 });
+    await sleep(10);
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent',
+      { type: 'mouseReleased', x: Math.round(x), y: Math.round(y), button: btn, clickCount: 1 });
+  }
   return { ok: true };
 }
 
@@ -1010,8 +1020,9 @@ async function cmdDetectBoxes({ draw = false, tabId } = {}) {
     returnByValue: true,
     awaitPromise: false,
   });
-  // Strip live `el` DOM references — not JSON-serialisable and not useful to the agent.
-  const items = (result?.value ?? []).map(({ el: _, ...rest }) => rest);
+  // `el` is stripped inside detectBoxes before returning, so items are plain
+  // JSON-serialisable objects — no further mapping needed.
+  const items = result?.value ?? [];
   return { items };
 }
 
