@@ -96,11 +96,17 @@ function detectBoxes({ draw = false } = {}) {
     }
     // ARIA disabled covers role-based controls
     if (el.getAttribute('aria-disabled') === 'true') m.disabled = true;
+    // contenteditable rich-text fields (post composer, comment box, Gmail compose, etc.)
+    if (el.getAttribute('contenteditable') === 'true') {
+      m.inputType = 'contenteditable';
+      const val = el.textContent.trim();
+      if (val) m.value = val.slice(0, 60);
+    }
     return m;
   };
 
   // ── PASS 1: CONTROLS ─────────────────────────────────────────────────────────
-  const ctrlSel = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[role="searchbox"]';
+  const ctrlSel = 'a[href],button,input,select,textarea,[contenteditable="true"],[role="button"],[role="link"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[role="searchbox"],[role="textbox"]';
 
   const rawControls = [...document.querySelectorAll(ctrlSel)].flatMap(el => {
     if (!visible(el)) return [];
@@ -169,6 +175,11 @@ function detectBoxes({ draw = false } = {}) {
     return score;
   };
 
+  // Elements with explicit interactive ARIA roles should never be re-classified
+  // as cards — they're already controls in Pass 1 (e.g. <li role="menuitem">).
+  const interactiveRoles = new Set(['button','link','menuitem','tab','checkbox','radio','switch','combobox','searchbox','textbox']);
+  const controlElSet = new Set(controls.map(c => c.el));
+
   const allCardCandidates = [...document.querySelectorAll('div,article,li,section,figure,aside')].filter(el => {
     if (!visible(el)) return false;
     const r = el.getBoundingClientRect();
@@ -176,6 +187,9 @@ function detectBoxes({ draw = false } = {}) {
     if (r.width < 50 || r.height < 30) return false;
     if (r.width * r.height < 1500) return false;
     if (isLayoutWrapper(el, r)) return false;
+    // Skip elements already captured as interactive controls (e.g. <li role="menuitem">)
+    const role = el.getAttribute('role');
+    if (controlElSet.has(el) && role && interactiveRoles.has(role)) return false;
     return cardScore(el) >= 3;
   });
 

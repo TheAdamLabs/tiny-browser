@@ -84,6 +84,7 @@ For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-
 | Change | What it does |
 |---|---|
 | `detect_boxes` items now include state metadata | Each item carries `inputType`, `checked`, `disabled`, `value`, `href` when present — eliminates most follow-up `query` calls to decide how to interact |
+| `detect_boxes` now detects `contenteditable` fields | `div[contenteditable]` and `[role="textbox"]` appear as controls with `inputType:"contenteditable"` — covers LinkedIn composer, Gmail compose, Notion, Slack |
 | `click` — `button` param | `button:"right"` dispatches a right-click (fires `contextmenu` event) |
 | `cursor:pointer` element detection | Non-semantic click targets (`<p>`, `<div>`, `<span>`) with `cursor:pointer` are now auto-detected as controls — catches close buttons, custom toggles |
 | `drag` auto-activates background tabs | Like `click`, `drag` now activates the target tab when `tabId` is passed — no more timeout on background tab drags |
