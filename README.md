@@ -68,17 +68,22 @@ cp SKILL.md ~/.cursor/skills/browser-control/SKILL.md
 ```bash
 tiny-browser help                    # full command reference
 tiny-browser help navigate           # detail for a specific command
-tiny-browser screenshot              # take a screenshot
+tiny-browser detect_boxes            # discover all interactive elements (primary)
+tiny-browser click '{"x":380,"y":260}'
+tiny-browser screenshot              # visual confirmation when needed
 tiny-browser navigate '{"url":"https://example.com"}'
-tiny-browser click '{"x":350,"y":240}'
 tiny-browser query '{"expression":"document.title"}'
 ```
 
-Action commands (`click`, `navigate`, `type`, etc.) automatically include a `"screenshot"` field in their response — the AI reads it immediately to observe the result before acting again.
-
-Screenshots overlay a DPR-corrected coordinate grid in CSS pixels — use the red grid labels as click coordinates directly.
+The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all visible controls, cards, and images with exact CSS-pixel bounding boxes. The agent computes click coordinates from `rect.left + rect.width/2` and `rect.top + rect.height/2` — no PNG parsing needed. Action commands automatically include `boxes[]` in their response for the next round-trip. Screenshots are used only when visual state matters (error colours, canvas, overlays).
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
+
+### New commands (v0.4)
+
+| Command | What it does |
+|---|---|
+| `detect_boxes` | Returns all visible controls / cards / images with bounding boxes and center coordinates — primary navigation method, ~5–10× fewer tokens than a screenshot |
 
 ### New commands (v0.3)
 
@@ -98,9 +103,10 @@ For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-
 
 | Command | Typical time |
 |---|---|
-| `navigate` | ~1.5s (waits for tab load + screenshot) |
+| `detect_boxes` | ~100ms (JS DOM walk, no PNG — primary navigation) |
+| `navigate` | ~1.5s (waits for tab load + detect_boxes + screenshot) |
 | `click` | ~0.7s (consistent — no jitter overhead) |
-| `type` (default) | ~85ms/char + screenshot |
+| `type` (default) | ~85ms/char + detect_boxes |
 | `type` with `fast:true` | ~0.6s flat regardless of length |
 | `screenshot` | ~0.5s |
 | `scroll` | ~0.6s (JS `scrollBy` with `behavior:instant` — overrides CSS smooth scroll) |

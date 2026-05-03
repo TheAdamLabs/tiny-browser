@@ -13,6 +13,20 @@ let ws = null;
 let connected = false;
 
 // ---------------------------------------------------------------------------
+// page-extractor source — loaded once at startup, injected via Runtime.evaluate
+// ---------------------------------------------------------------------------
+
+let detectBoxesSource = '';
+(async () => {
+  try {
+    const url = chrome.runtime.getURL('page-extractor.js');
+    detectBoxesSource = await fetch(url).then(r => r.text());
+  } catch (e) {
+    console.error('[tiny-mcp] failed to load page-extractor.js', e);
+  }
+})();
+
+// ---------------------------------------------------------------------------
 // Active-tab tracking
 //
 // chrome.tabs.query({ active:true, lastFocusedWindow:true }) returns the wrong
@@ -221,6 +235,7 @@ async function dispatch(msg) {
       case 'get_dialog':     return await cmdGetDialog(msg.params);
       case 'dismiss_dialog': return await cmdDismissDialog(msg.params);
       case 'set_file_input': return await cmdSetFileInput(msg.params);
+      case 'detect_boxes':   return await cmdDetectBoxes(msg.params);
       default:               return { error: `unknown command: ${msg.command}` };
     }
   } catch (err) {
@@ -969,6 +984,35 @@ async function cmdSetFileInput({ selector, files, tabId } = {}) {
   await chrome.debugger.sendCommand(target, 'DOM.setFileInputFiles',
     { nodeId, files: Array.isArray(files) ? files : [files] });
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// detect_boxes command handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract all visible interactive controls (C*), semantic cards (K*), and
+ * significant images (I*) from the current viewport.
+ *
+ * Returns items with id, kind, tag, text, selector, and rect (CSS pixels).
+ * Center coordinates for click: cx = rect.left + rect.width/2, cy = rect.top + rect.height/2.
+ *
+ * draw — overlay coloured bounding boxes on the page (default false).
+ *        Use draw:true paired with a screenshot for visual debugging only.
+ */
+async function cmdDetectBoxes({ draw = false, tabId } = {}) {
+  if (!detectBoxesSource) throw new Error('page-extractor.js not loaded yet — retry in a moment');
+  const tab = await resolveTab({ tabId });
+  const target = await ensureDebugger(tab.id);
+  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+    // Inject the function definition then call it — no content-script or manifest change needed.
+    expression: detectBoxesSource + `\ndetectBoxes({ draw: ${draw} })`,
+    returnByValue: true,
+    awaitPromise: false,
+  });
+  // Strip live `el` DOM references — not JSON-serialisable and not useful to the agent.
+  const items = (result?.value ?? []).map(({ el: _, ...rest }) => rest);
+  return { items };
 }
 
 // ---------------------------------------------------------------------------

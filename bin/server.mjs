@@ -124,6 +124,7 @@ const ROUTES = new Set([
   'get_console', 'enable_network', 'get_network',
   'hover',
   'get_dialog', 'dismiss_dialog', 'set_file_input',
+  'detect_boxes',
 ]);
 
 // Commands that change visible page state — automatically include a screenshot
@@ -132,6 +133,14 @@ const AUTO_SCREENSHOT = new Set([
   'click', 'drag', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
   'select_option', 'wait', 'hover',
   'set_file_input',  // file label updates immediately; confirm with auto-screenshot
+]);
+
+// Commands that change page state — automatically include detect_boxes in their
+// response so the agent can identify new targets without a screenshot round-trip.
+// detect_boxes runs after AUTO_SCREENSHOT (if present) using the same settleMs.
+const AUTO_DETECT = new Set([
+  'click', 'drag', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
+  'select_option', 'wait', 'hover', 'set_file_input',
 ]);
 
 // Per-command settle time (ms) between command completion and auto-screenshot.
@@ -200,6 +209,11 @@ const server = http.createServer(async (req, res) => {
 
     if (ROUTES.has(route)) {
       const result = await sendToExtension(route, params);
+      const needsSettle = AUTO_SCREENSHOT.has(route) || AUTO_DETECT.has(route);
+      if (needsSettle) {
+        const settleMs = SETTLE_MS[route] ?? 250;
+        await new Promise(r => setTimeout(r, settleMs));
+      }
       if (AUTO_SCREENSHOT.has(route)) {
         try {
           // Per-command settle delay before capturing the auto-screenshot.
@@ -207,8 +221,6 @@ const server = http.createServer(async (req, res) => {
           // only a short final-paint settle is needed.  Interactive commands get
           // tuned values that cover their typical DOM side-effects without
           // over-waiting.
-          const settleMs = SETTLE_MS[route] ?? 250;
-          await new Promise(r => setTimeout(r, settleMs));
           const { base64, dpr } = await sendToExtension('screenshot', params); // forwards tabId
           const png = await makeScreenshot(base64, dpr);
           const filePath = params.tabId != null
@@ -216,6 +228,12 @@ const server = http.createServer(async (req, res) => {
             : SCREENSHOT_PATH;
           fs.writeFileSync(filePath, png);
           result.screenshot = filePath;
+        } catch { /* best-effort — never fail the original command */ }
+      }
+      if (AUTO_DETECT.has(route)) {
+        try {
+          const boxes = await sendToExtension('detect_boxes', { tabId: params.tabId });
+          result.boxes = boxes.items;
         } catch { /* best-effort — never fail the original command */ }
       }
       return reply(200, result);

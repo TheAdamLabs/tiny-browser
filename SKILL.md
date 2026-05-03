@@ -42,34 +42,69 @@ When unsure about params or return format, **run `tiny-browser help COMMAND` fir
 ## Core loop
 
 ```
-screenshot → Read PNG → read grid label → click x,y
-→ response includes "screenshot" field → Read it → act again → …
+detect_boxes  →  read items[]  →  compute cx/cy from rect  →  click cx,cy
+              →  response includes boxes[]  →  read updated items  →  act again
+              →  call screenshot only when visual state matters
 ```
 
-Always start by taking a screenshot. The image has a bold red coordinate grid every
-100 px — **use the label values as click coordinates, not the visual pixel positions
-in the rendered image.**
+`detect_boxes` returns all visible interactive controls (buttons, links, inputs), semantic cards, and images with exact CSS-pixel bounding boxes. It is the primary navigation method — **~5–10× fewer tokens than a screenshot**.
 
-Action commands (`click`, `navigate`, `type`, etc.) automatically include a
-`"screenshot"` field — **read that path immediately** instead of a separate screenshot call.
+Action commands (`click`, `navigate`, `type`, etc.) automatically include `boxes[]` in their response — read that directly to find the next target without a separate call.
+
+Use `screenshot` when you need to verify visual state (error colours, loading spinners, canvas, overlays) or when `detect_boxes` misses something (shadow DOM, cross-origin iframes).
+
+**Computing click coordinates from a box:**
+```
+cx = rect.left + rect.width  / 2
+cy = rect.top  + rect.height / 2
+```
 
 ## Patterns
 
-**Identify and click any element**
+**Identify and click any element (primary — no screenshot needed)**
 ```bash
-# Always start with a screenshot
+# Discover all visible controls, cards, images with bounding boxes
+tiny-browser detect_boxes
+# Returns items like: {"id":"C3","kind":"control","tag":"button","text":"Sign in",
+#   "rect":{"left":320,"top":240,"width":120,"height":40}, "selector":"..."}
+# Compute center: cx = 320 + 120/2 = 380,  cy = 240 + 40/2 = 260
+tiny-browser click '{"x":380,"y":260}'
+# Response includes boxes[] — read updated items to find the next target
+```
+
+**When to use screenshot instead of detect_boxes**
+```bash
+# Use screenshot when visual state matters:
+#   - Error colour / success colour on a field or banner
+#   - Loading spinner / skeleton covering interactive elements
+#   - Canvas or WebGL content (charts, maps, games)
+#   - Cross-origin iframe content
+#   - Element visually covered by a modal or overlay
+tiny-browser screenshot
+# Read the PNG — use the red grid label values as click coordinates
+```
+
+**Identify and click any element (screenshot fallback)**
+```bash
 tiny-browser screenshot
 # Read the PNG — find the element in the grid, note its coordinates
-# Click at those coordinates
 tiny-browser click '{"x":350,"y":240}'
-# The response includes a screenshot — read it to confirm
+# The response includes boxes[] and screenshot — read boxes[] first
+```
+
+**Visual debugging with detect_boxes overlay**
+```bash
+# draw:true paints coloured boxes on the page — always pair with a screenshot
+tiny-browser detect_boxes '{"draw":true}'
+tiny-browser screenshot
+# Red = controls (C*), Green = cards (K*), Purple = images (I*)
 ```
 
 **Fill a text field**
 ```bash
-tiny-browser screenshot
-# Read grid coordinates of the input field
-tiny-browser click '{"x":400,"y":300}'
+tiny-browser detect_boxes
+# Find the input: {"id":"C2","kind":"control","tag":"input","text":"Email","rect":{"left":200,"top":300,"width":300,"height":40}}
+tiny-browser click '{"x":350,"y":320}'  # cx = 200+300/2, cy = 300+40/2
 tiny-browser key_press '{"key":"SelectAll"}'
 tiny-browser type '{"text":"new value"}'
 ```
@@ -82,19 +117,19 @@ tiny-browser type '{"text":"long paragraph or a search query here","fast":true}'
 **Navigate and wait for content to appear**
 ```bash
 tiny-browser navigate '{"url":"https://example.com/app"}'
-# navigate waits for tab load internally. SPAs may hydrate later:
-# use wait + screenshot loop to confirm interactive content is visible
+# navigate waits for tab load internally and returns boxes[].
+# SPAs may hydrate later — use wait + detect_boxes to confirm interactive content is loaded.
 tiny-browser wait '{"timeout":8000}'
-# Read the auto-screenshot to verify the page is ready
+# Read boxes[] in the response to verify interactive elements are present
 ```
 
 **Form inside a modal**
 ```bash
-tiny-browser screenshot
-# Read coordinates of the "Open" / trigger button
+tiny-browser detect_boxes
+# Find the trigger button by text (e.g. "Open", "Add", "Edit")
 tiny-browser click '{"x":N,"y":N}'
-# Read the auto-screenshot — modal is now visible
-# Read coordinates of each field and the submit button
+# Read boxes[] in the response — modal controls are now listed
+# Find each field and the submit button
 tiny-browser click '{"x":N,"y":N}'   # focus first field
 tiny-browser type '{"text":"value"}'
 tiny-browser click '{"x":N,"y":N}'   # submit button
@@ -110,40 +145,40 @@ tiny-browser select_option '{"selector":"#sort","text":"Newest first"}'
 
 **Open a custom (non-native) dropdown**
 ```bash
-tiny-browser screenshot
-# Read coordinates of the dropdown trigger
+tiny-browser detect_boxes
+# Find the dropdown trigger control by text
 tiny-browser click '{"x":N,"y":N}'
-# Read the auto-screenshot — options are now visible
-# Read coordinates of the desired option
+# Read boxes[] — the dropdown options are now listed as controls
+# Find the desired option by text and click its center coordinates
 tiny-browser click '{"x":N,"y":N}'
 ```
 
 **Trigger a hover-activated menu or tooltip**
 ```bash
-# Take a screenshot first to find the coordinates of the nav item
-tiny-browser screenshot
+# Take detect_boxes to find the nav item coordinates
+tiny-browser detect_boxes
 # Move the mouse to the nav item — CSS :hover activates, dropdown appears
 tiny-browser hover '{"x":350,"y":60}'
-# Read the screenshot in the response, then click the revealed option
+# Read boxes[] in the response — revealed options are now listed
 tiny-browser click '{"x":N,"y":N}'
 ```
 
 **Drag and drop (Kanban, sortable lists, resizable panels)**
 ```bash
-# Take a screenshot to get source and target coordinates from the grid
-tiny-browser screenshot
+# detect_boxes to get source and target center coordinates
+tiny-browser detect_boxes
 # Drag from one card to another column — steps:20 for smooth SPAs like Linear/Trello
 tiny-browser drag '{"fromX":200,"fromY":300,"toX":600,"toY":300,"steps":20,"duration":500}'
-# Read the auto-screenshot to confirm the drop landed correctly
+# Read boxes[] in response to confirm new layout
 ```
 
 **HTML5 drag & drop (sites using dragstart/dragover/drop events)**
 ```bash
 # Some sites (e.g. the-internet.herokuapp.com/drag_and_drop) use the HTML5
 # DnD API; standard mouse events don't trigger it — use html5:true
-tiny-browser screenshot
+tiny-browser detect_boxes
 tiny-browser drag '{"fromX":200,"fromY":300,"toX":600,"toY":300,"html5":true}'
-# Read the auto-screenshot to confirm
+# Read boxes[] to confirm
 ```
 
 **Handle a JS alert / confirm / prompt**
@@ -285,4 +320,8 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **scroll returns scrollY/scrollX**: the `scroll` response now includes `scrollY` and `scrollX` — use these to offset click coordinates for elements that are now in view after scrolling. This avoids a separate `query` round-trip to get scroll position.
 - **background tab click auto-activates**: when you pass an explicit `tabId` to `click`, the extension now automatically activates that tab before sending the mouse event so JS synthetic events fire correctly. You don't need a manual `switch_tab` first.
 - **Shadow DOM and `query`**: `document.querySelector` doesn't pierce shadow roots. For data inside shadow DOM components, query through the host: `document.querySelector('my-component').shadowRoot.querySelector('.price')?.textContent`. Clicks still work via coordinates — the visual loop is unaffected.
+- **`detect_boxes` covers viewport only**: elements below the fold are not in boxes[]. Scroll first, then call `detect_boxes` again (or read boxes[] from the scroll response) to discover newly-visible content.
+- **`detect_boxes` misses shadow DOM controls**: controls inside shadow roots don't pierce into `querySelectorAll` — if an element is missing from boxes[], fall back to `query` for its rect and use `click` with those coordinates.
+- **`detect_boxes` misses canvas / iframe content**: canvas-rendered UI and cross-origin iframes have no DOM nodes — use `screenshot` to see and target those elements.
+- **`detect_boxes` with `draw:true`**: always pair with a follow-up `screenshot` call — the overlays are painted synchronously but only visible in the screenshot. Overlays are removed on the next `detect_boxes` call.
 - **`read_page` text_limit**: pass `{"text_limit":20000}` for long articles — the default 4000-char cap truncates most real documentation pages
