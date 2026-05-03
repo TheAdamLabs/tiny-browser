@@ -119,18 +119,19 @@ function sendToExtension(command, params = {}) {
 const ROUTES = new Set([
   'click', 'drag', 'type', 'scroll', 'navigate',
   'get_url', 'read_page', 'key_press',
-  'find_element', 'click_element', 'select_option', 'wait', 'query',
+  'select_option', 'wait', 'query',
   'list_tabs', 'new_tab', 'switch_tab', 'close_tab',
-  'wait_for_element',
   'get_console', 'enable_network', 'get_network',
   'hover',
+  'get_dialog', 'dismiss_dialog', 'set_file_input',
 ]);
 
 // Commands that change visible page state — automatically include a screenshot
 // in their response so the AI agent can read it without a separate round-trip.
 const AUTO_SCREENSHOT = new Set([
   'click', 'drag', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
-  'click_element', 'select_option', 'wait', 'wait_for_element', 'hover',
+  'select_option', 'wait', 'hover',
+  'set_file_input',  // file label updates immediately; confirm with auto-screenshot
 ]);
 
 // Per-command settle time (ms) between command completion and auto-screenshot.
@@ -143,18 +144,17 @@ const AUTO_SCREENSHOT = new Set([
 //   type               — last keystroke has fired; UI update is fast.
 //   hover              — CSS :hover transitions typically complete within 200ms.
 const SETTLE_MS = {
-  navigate:         150,
-  new_tab:          150,
-  wait:              50,
-  wait_for_element:  50,
-  click:            200,
-  drag:             200,  // allow drop targets to settle after mouseReleased
-  click_element:    200,
-  select_option:    150,
-  scroll:            60,  // scrollBy({behavior:'instant'}) is synchronous; 60ms covers repaint
-  key_press:        150,
-  type:             150,
-  hover:            200,
+  navigate:       150,
+  new_tab:        150,
+  wait:            50,
+  click:          200,
+  drag:           200,  // allow drop targets to settle after mouseReleased
+  select_option:  150,
+  scroll:          60,  // scrollBy({behavior:'instant'}) is synchronous; 60ms covers repaint
+  key_press:      150,
+  type:           150,
+  hover:          200,
+  set_file_input:  50,  // file label update is synchronous; 50ms covers repaint
 };
 
 const server = http.createServer(async (req, res) => {

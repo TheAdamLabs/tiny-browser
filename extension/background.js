@@ -9,14 +9,6 @@ const WS_URL = 'ws://localhost:7331';
 const RECONNECT_DELAY_MS = 3000;
 const KEEPALIVE_ALARM = 'tiny-mcp-keepalive';
 
-// Interactive element selector — used for text-based element finding.
-// Restricted to truly actionable elements; excludes generic containers.
-const INTERACTIVE =
-  'button, a, input, textarea, select, summary, label, ' +
-  '[role="button"], [role="link"], [role="checkbox"], ' +
-  '[role="menuitem"], [role="tab"], [role="option"], [role="radio"], ' +
-  '[onclick], [tabindex]:not([tabindex="-1"])';
-
 let ws = null;
 let connected = false;
 
@@ -66,6 +58,7 @@ const MAX_NETWORK_ENTRIES = 200;
 const consoleLogs     = new Map(); // tabId → ConsoleEntry[]
 const networkRequests = new Map(); // tabId → Map(requestId → NetworkEntry)
 const networkEnabled  = new Set(); // tabIds with Network domain active
+const pendingDialogs  = new Map(); // tabId → { type, message } for open JS dialogs
 
 chrome.debugger.onDetach.addListener(({ tabId }) => {
   if (tabId != null) debuggerSessions.delete(tabId);
@@ -77,12 +70,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   consoleLogs.delete(tabId);
   networkRequests.delete(tabId);
   networkEnabled.delete(tabId);
+  pendingDialogs.delete(tabId);
 });
 
 async function ensureDebugger(tabId) {
   if (!debuggerSessions.has(tabId)) {
     await chrome.debugger.attach({ tabId }, '1.3');
     await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable');
+    // Page.enable subscribes to dialog lifecycle events (javascriptDialogOpening, etc.)
+    await chrome.debugger.sendCommand({ tabId }, 'Page.enable');
     // Re-enable Network if it was active before a navigation caused a detach
     if (networkEnabled.has(tabId)) {
       await chrome.debugger.sendCommand({ tabId }, 'Network.enable');
@@ -164,6 +160,15 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     const r = networkRequests.get(tabId)?.get(params.requestId);
     if (r) r.error = params.errorText;
   }
+
+  // Dialog lifecycle — store pending dialog so get_dialog can read it and
+  // dismiss_dialog can handle it before the 30s CDP timeout fires.
+  if (method === 'Page.javascriptDialogOpening') {
+    pendingDialogs.set(tabId, { type: params.type, message: params.message });
+  }
+  if (method === 'Page.javascriptDialogClosed') {
+    pendingDialogs.delete(tabId);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -203,8 +208,6 @@ async function dispatch(msg) {
       case 'get_url':        return await cmdGetUrl(msg.params);
       case 'read_page':      return await cmdReadPage(msg.params);
       case 'key_press':      return await cmdKeyPress(msg.params);
-      case 'find_element':   return await cmdFindElement(msg.params);
-      case 'click_element':  return await cmdClickElement(msg.params);
       case 'select_option':  return await cmdSelectOption(msg.params);
       case 'wait':           return await cmdWait(msg.params);
       case 'query':          return await cmdQuery(msg.params);
@@ -212,10 +215,12 @@ async function dispatch(msg) {
       case 'new_tab':        return await cmdNewTab(msg.params);
       case 'switch_tab':     return await cmdSwitchTab(msg.params);
       case 'close_tab':      return await cmdCloseTab(msg.params);
-      case 'wait_for_element': return await cmdWaitForElement(msg.params);
       case 'get_console':    return await cmdGetConsole(msg.params);
       case 'enable_network': return await cmdEnableNetwork(msg.params);
       case 'get_network':    return await cmdGetNetwork(msg.params);
+      case 'get_dialog':     return await cmdGetDialog(msg.params);
+      case 'dismiss_dialog': return await cmdDismissDialog(msg.params);
+      case 'set_file_input': return await cmdSetFileInput(msg.params);
       default:               return { error: `unknown command: ${msg.command}` };
     }
   } catch (err) {
@@ -322,136 +327,6 @@ async function humanTypeKey(target, char) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared element-finding JS expression (runs inside Runtime.evaluate)
-//
-// Returns the element reference itself (not a JSON string) so callers can
-// do further work (getBoundingClientRect, click, etc.) in the same expression.
-//
-// Strategy:
-//   1. Restrict to truly interactive elements (not generic containers).
-//   2. Filter to visible elements with non-zero bounding boxes.
-//   3. Optional positional constraints: x_max, within_selector, nth.
-//   4. visible_only: element must not be hidden (offsetParent !== null or visible rect).
-//   5. Shadow DOM fallback: if nothing found in the regular DOM, repeat the
-//      search across all open shadow roots recursively (Option A — implicit).
-//   6. Among matches, pick the *smallest* element by bounding area.
-// ---------------------------------------------------------------------------
-
-/**
- * Build context variables for iframe-scoped evaluations.
- *
- * Returns three JS snippets to inline into an IIFE:
- *   iframeSetup — declares _iframeDoc and _iframeOff; returns null early if
- *                 the iframe is missing or cross-origin.
- *   docRef      — the document reference string to pass into buildFindExpr.
- *   offsetRef   — object with .x/.y for translating iframe-relative coords to
- *                 main-frame viewport coords.
- *
- * When frame_selector is null, returns the no-op (top-level document) variant.
- */
-function buildIframeContext(frame_selector) {
-  if (!frame_selector) {
-    return { iframeSetup: '', docRef: 'document', offsetRef: '{x:0,y:0}' };
-  }
-  const sel = JSON.stringify(frame_selector);
-  return {
-    iframeSetup: `
-      const _iframe = document.querySelector(${sel});
-      if (!_iframe) return null;
-      let _iframeDoc;
-      try { _iframeDoc = _iframe.contentDocument; } catch(_) { return null; }
-      if (!_iframeDoc) return null;
-      const _iframeRect = _iframe.getBoundingClientRect();
-      const _iframeOff = { x: _iframeRect.left, y: _iframeRect.top };
-    `,
-    docRef: '_iframeDoc',
-    offsetRef: '_iframeOff',
-  };
-}
-
-function buildFindExpr(selector, text, exact = false, opts = {}) {
-  const { x_max, within_selector, nth = 0, visible_only = false, docRef = 'document' } = opts;
-
-  // Helper: collect all elements matching `sel` in `root`, then recurse into shadow roots
-  const collectFn = `
-    function collectAll(root, sel) {
-      const els = Array.from(root.querySelectorAll(sel));
-      root.querySelectorAll('*').forEach(el => {
-        if (el.shadowRoot) els.push(...collectAll(el.shadowRoot, sel));
-      });
-      return els;
-    }`;
-
-  if (selector) {
-    // Selector path: use querySelectorAll(selector)[nth] so nth is always respected.
-    // querySelector() would always return element 0, breaking nth:1, nth:2, etc.
-    // Wrap in try/catch: invalid selectors (e.g. unquoted brackets) throw SyntaxError —
-    // el stays null and find_element returns found:false rather than crashing.
-    return `(() => {
-      ${collectFn}
-      let el = null;
-      try {
-        const scope = ${within_selector
-          ? `(${docRef}.querySelector(${JSON.stringify(within_selector)}) ?? ${docRef})`
-          : docRef};
-        el = Array.from(scope.querySelectorAll(${JSON.stringify(selector)}))[${nth}] ?? null;
-        if (!el) {
-          el = collectAll(scope, ${JSON.stringify(selector)})[${nth}] ?? null;
-        }
-      } catch (_) { /* invalid selector — el stays null */ }
-      return el;
-    })()`;
-  }
-
-  const q = JSON.stringify((text ?? '').toLowerCase());
-  const match = exact ? `t === ${q}` : `t.includes(${q})`;
-
-  const filterChain = `
-      .filter(el => {
-        // Use || not ?? so empty innerText (e.g. input[type=submit]) falls through to value/aria-label
-        const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().toLowerCase();
-        return ${match};
-      })
-      .filter(el => {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-      })
-      ${visible_only ? `.filter(el => el.offsetParent !== null || el.getBoundingClientRect().width > 0)` : ''}
-      ${x_max != null ? `.filter(el => el.getBoundingClientRect().x < ${x_max})` : ''}
-      .filter(el => {
-        // Skip elements covered by an overlay — elementFromPoint must reach this element.
-        // Use the ownerDocument so this works in iframe scopes too.
-        const r = el.getBoundingClientRect();
-        const top = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return top != null && (top === el || el.contains(top));
-      })`;
-
-  const sortAndPick = (n) => `
-      .sort((a, b) => {
-        const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
-        return (ra.width * ra.height) - (rb.width * rb.height);
-      })[${n}] ?? null`;
-
-  const scope = within_selector
-    ? `(${docRef}.querySelector(${JSON.stringify(within_selector)}) ?? ${docRef})`
-    : docRef;
-
-  return `(() => {
-    ${collectFn}
-    const INTERACTIVE = ${JSON.stringify(INTERACTIVE)};
-    // First pass: light DOM only (fast path)
-    let candidates = Array.from(${scope}.querySelectorAll(INTERACTIVE))${filterChain};
-    let el = candidates${sortAndPick(nth)};
-    // Second pass: shadow DOM fallback
-    if (!el) {
-      candidates = collectAll(${scope}, INTERACTIVE)${filterChain};
-      el = candidates${sortAndPick(nth)};
-    }
-    return el;
-  })()`;
-}
-
-// ---------------------------------------------------------------------------
 // Command handlers
 // ---------------------------------------------------------------------------
 
@@ -480,6 +355,12 @@ async function cmdScreenshot(params = {}) {
 
 async function cmdClick({ x, y, tabId, precise = false } = {}) {
   const tab = await resolveTab({ tabId });
+  // When targeting a specific tab, ensure it is active so the browser fires
+  // JS synthetic events (click, mousedown, etc.). Background tabs receive the
+  // CDP mouse events but browsers suppress synthetic events for inactive tabs.
+  if (tabId != null && !tab.active) {
+    await chrome.tabs.update(tab.id, { active: true });
+  }
   const target = await ensureDebugger(tab.id);
   await humanClick(target, x, y, { precise });
   return { ok: true };
@@ -603,18 +484,42 @@ async function cmdType({ text, x, y, tabId, fast = false, replace = false, frame
 }
 
 /**
- * Drag from (fromX, fromY) to (toX, toY) using CDP mouse events.
+ * Drag from (fromX, fromY) to (toX, toY).
  *
- * steps — number of intermediate mouseMoved events (default 10); higher = smoother
- *         for apps that use pointermove to track position (e.g. canvas, Kanban).
+ * steps    — number of intermediate mouseMoved events (default 10); higher = smoother
+ *            for apps that use pointermove to track position (e.g. canvas, Kanban).
  * duration — total drag time in ms (default 300); spread across the intermediate steps.
+ * html5    — set true for apps that use the HTML5 Drag and Drop API (dragstart/dragover/drop
+ *            events). Standard mouse events don't trigger HTML5 DnD; this mode dispatches
+ *            synthetic DragEvents resolved from the source and target viewport coordinates.
  *
  * Works on: Kanban boards (Linear, Trello), sortable lists, resizable panels,
  * file manager moves, canvas drawing tools, range sliders.
  */
-async function cmdDrag({ fromX, fromY, toX, toY, tabId, steps = 10, duration = 300 } = {}) {
+async function cmdDrag({ fromX, fromY, toX, toY, tabId, steps = 10, duration = 300, html5 = false } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
+
+  if (html5) {
+    // HTML5 Drag and Drop protocol — uses DragEvent objects resolved from coordinates.
+    // elementFromPoint is coordinate-based (not selector/text-based) so this stays
+    // inside the visual loop: coordinates come from the screenshot grid as usual.
+    await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+      expression: `(() => {
+        const dt = new DataTransfer();
+        const src = document.elementFromPoint(${fromX}, ${fromY});
+        const dst = document.elementFromPoint(${toX}, ${toY});
+        if (!src || !dst) return;
+        src.dispatchEvent(new DragEvent('dragstart', { bubbles:true, cancelable:true, dataTransfer:dt }));
+        dst.dispatchEvent(new DragEvent('dragenter', { bubbles:true, cancelable:true, dataTransfer:dt }));
+        dst.dispatchEvent(new DragEvent('dragover',  { bubbles:true, cancelable:true, dataTransfer:dt }));
+        dst.dispatchEvent(new DragEvent('drop',       { bubbles:true, cancelable:true, dataTransfer:dt }));
+        src.dispatchEvent(new DragEvent('dragend',    { bubbles:true, dataTransfer:dt }));
+      })()`,
+    });
+    return { ok: true };
+  }
+
   const stepMs = Math.max(1, Math.round(duration / steps));
   // Press at source
   await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
@@ -659,7 +564,7 @@ async function cmdScroll({ deltaX = 0, deltaY = 0, x, y, tabId } = {}) {
   // the auto-screenshot always captures the final position, not an animation midpoint.
   const probeX = x != null ? x : null;
   const probeY = y != null ? y : null;
-  await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
     expression: `(function() {
       const dx = ${deltaX}, dy = ${deltaY};
       const px = ${probeX !== null ? probeX : 'null'};
@@ -693,9 +598,13 @@ async function cmdScroll({ deltaX = 0, deltaY = 0, x, y, tabId } = {}) {
           if (hit) scrollAncestor(hit);
         }
       }
+      // Return final scroll position so the caller can track coordinate offsets
+      return JSON.stringify({ scrollY: window.scrollY, scrollX: window.scrollX });
     })()`,
+    returnByValue: true,
   });
-  return { ok: true };
+  const pos = result?.value ? JSON.parse(result.value) : { scrollY: 0, scrollX: 0 };
+  return { ok: true, scrollY: pos.scrollY, scrollX: pos.scrollX };
 }
 
 async function cmdNavigate({ url, tabId, timeout = 15000 } = {}) {
@@ -927,116 +836,22 @@ async function cmdKeyPress({ key, tabId } = {}) {
   return { ok: true };
 }
 
-async function cmdFindElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, frame_selector, tabId } = {}) {
-  const tab = await resolveTab({ tabId });
-  const target = await ensureDebugger(tab.id);
-  const opts = { x_max, within_selector, nth, visible_only };
-  const { iframeSetup, docRef, offsetRef } = buildIframeContext(frame_selector);
-
-  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-    expression: `(() => {
-      ${iframeSetup}
-      const el = ${buildFindExpr(selector, text, exact, { ...opts, docRef })};
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return null;
-      return JSON.stringify({
-        x: Math.round(${offsetRef}.x + r.left + r.width / 2),
-        y: Math.round(${offsetRef}.y + r.top + r.height / 2),
-        tag: el.tagName,
-        text: (el.innerText ?? el.value ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 80),
-        href: el.href ?? null,
-      });
-    })()`,
-    returnByValue: true,
-  });
-  if (!result.value) return { found: false };
-  return { found: true, ...JSON.parse(result.value) };
-}
 
 /**
- * Find an interactive element by selector or text, then click its center.
- * Atomic find+click in a single debugger session — avoids the two-step
- * find_element → click pattern where stale coordinates can miss small targets.
- *
- * Scrolls the element into view first so off-screen elements are reachable.
- * frame_selector — CSS selector for a same-origin <iframe>; scopes find to
- *                  that iframe's document and translates coords to main viewport.
- */
-async function cmdClickElement({ selector, text, exact = false, x_max, within_selector, nth, visible_only, frame_selector, tabId, precise = false } = {}) {
-  const tab = await resolveTab({ tabId });
-  const target = await ensureDebugger(tab.id);
-  const opts = { x_max, within_selector, nth, visible_only };
-  const { iframeSetup, docRef, offsetRef } = buildIframeContext(frame_selector);
-  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-    expression: `(() => {
-      ${iframeSetup}
-      const el = ${buildFindExpr(selector, text, exact, { ...opts, docRef })};
-      if (!el) return null;
-      // Bring into viewport before measuring — ensures coordinates are in-bounds
-      el.scrollIntoView({ block: 'center', behavior: 'instant' });
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return null;
-      return JSON.stringify({
-        x: Math.round(${offsetRef}.x + r.left + r.width / 2),
-        y: Math.round(${offsetRef}.y + r.top + r.height / 2),
-        tag: el.tagName,
-        text: (el.innerText ?? el.value ?? el.getAttribute('aria-label') ?? '').trim().slice(0, 80),
-      });
-    })()`,
-    returnByValue: true,
-  });
-  if (!result.value) return { found: false };
-  const { x, y, tag, text: elText } = JSON.parse(result.value);
-  await humanClick(target, x, y, { precise });
-  return { found: true, x, y, tag, text: elText };
-}
-
-/**
- * Poll until document.readyState === 'complete' or timeout.
+ * Poll until the tab's load status is 'complete' or timeout.
  * Useful after navigate, form submit, or any action that triggers a page load.
  */
 async function cmdWait({ timeout = 10000, tabId } = {}) {
   const tab = await resolveTab({ tabId });
-  const target = await ensureDebugger(tab.id);
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-      expression: 'document.readyState',
-      returnByValue: true,
-    });
-    if (result.value === 'complete') return { ready: true };
+    try {
+      const updatedTab = await chrome.tabs.get(tab.id);
+      if (updatedTab.status === 'complete') return { ready: true };
+    } catch { break; }
     await sleep(300);
   }
   return { ready: false, timeout: true };
-}
-
-/**
- * Poll until a CSS selector (or shadow-pierced element) appears in the DOM
- * with a non-zero bounding box. Useful for SPAs that pass readyState=complete
- * before their React/Vue tree is hydrated and interactive.
- *
- * Also accepts text= for the same text-matching logic as find_element.
- */
-async function cmdWaitForElement({ selector, text, exact = false, within_selector, timeout = 10000, tabId } = {}) {
-  const tab = await resolveTab({ tabId });
-  const target = await ensureDebugger(tab.id);
-  const opts = { within_selector };
-  const expr = `(() => {
-    const el = ${buildFindExpr(selector, text, exact, opts)};
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
-  })()`;
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-      expression: expr, returnByValue: true,
-    });
-    if (result.value === true) return { found: true };
-    await sleep(250);
-  }
-  return { found: false, timeout: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,6 +914,61 @@ async function cmdGetNetwork({ clear = false, since, until, include_extensions =
   if (clear) networkRequests.set(tab.id, new Map());
   // Strip internal _mono field — not part of the public API
   return { requests: requests.map(({ _mono: _, ...r }) => r) };
+}
+
+// ---------------------------------------------------------------------------
+// Dialog command handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the pending JS dialog for the tab, or null if none is open.
+ * Returns { type: "alert"|"confirm"|"prompt"|"beforeunload", message: "..." }
+ */
+async function cmdGetDialog(params = {}) {
+  const tab = await resolveTab(params);
+  return pendingDialogs.get(tab.id) ?? null;
+}
+
+/**
+ * Dismiss (accept or cancel) the pending JS dialog for the tab.
+ *
+ * accept     — true = OK / Accept (default), false = Cancel / Dismiss.
+ * promptText — text to fill in for prompt() dialogs.
+ *
+ * Page.handleJavaScriptDialog operates at browser level and works even while
+ * V8 is paused waiting for the dialog — it does NOT block like other CDP calls.
+ */
+async function cmdDismissDialog({ accept = true, promptText = '', tabId } = {}) {
+  const tab = await resolveTab({ tabId });
+  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.handleJavaScriptDialog',
+    { accept, promptText });
+  pendingDialogs.delete(tab.id);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// File input command handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Set files on a native <input type="file"> without opening the OS picker.
+ *
+ * selector — CSS selector for the file input (default: 'input[type="file"]').
+ * files    — absolute path string or array of absolute path strings.
+ *
+ * Uses pure CDP (DOM.setFileInputFiles) — no Runtime.evaluate injection.
+ */
+async function cmdSetFileInput({ selector, files, tabId } = {}) {
+  const tab = await resolveTab({ tabId });
+  const target = await ensureDebugger(tab.id);
+  await chrome.debugger.sendCommand(target, 'DOM.enable');
+  const { root } = await chrome.debugger.sendCommand(target, 'DOM.getDocument', { depth: 0 });
+  const { nodeId } = await chrome.debugger.sendCommand(target, 'DOM.querySelector',
+    { nodeId: root.nodeId, selector: selector ?? 'input[type="file"]' });
+  if (!nodeId) return { ok: false, error: 'file input not found' };
+  await chrome.debugger.sendCommand(target, 'DOM.setFileInputFiles',
+    { nodeId, files: Array.isArray(files) ? files : [files] });
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------

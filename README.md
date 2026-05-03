@@ -70,27 +70,41 @@ tiny-browser help                    # full command reference
 tiny-browser help navigate           # detail for a specific command
 tiny-browser screenshot              # take a screenshot
 tiny-browser navigate '{"url":"https://example.com"}'
-tiny-browser click_element '{"text":"Sign in","exact":true}'
+tiny-browser click '{"x":350,"y":240}'
 tiny-browser query '{"expression":"document.title"}'
 ```
 
-Action commands (`click`, `navigate`, `click_element`, etc.) automatically include a `"screenshot"` field in their response — the AI can read it immediately without a separate screenshot call.
+Action commands (`click`, `navigate`, `type`, etc.) automatically include a `"screenshot"` field in their response — the AI reads it immediately to observe the result before acting again.
 
 Screenshots overlay a DPR-corrected coordinate grid in CSS pixels — use the red grid labels as click coordinates directly.
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
+### New commands (v0.3)
+
+| Command | What it does |
+|---|---|
+| `get_dialog` | Returns pending JS dialog (alert/confirm/prompt) info or `null` |
+| `dismiss_dialog` | Accepts or cancels the open dialog — unblocks the tab immediately |
+| `set_file_input` | Sets files on `<input type="file">` without opening the OS file picker |
+
+### Updated commands (v0.3)
+
+- `drag` — new `html5:true` param for sites using the HTML5 DnD API (`dragstart`/`drop` events)
+- `scroll` — response now includes `scrollY` and `scrollX` so coordinates can be adjusted without a separate `query`
+- `click` — auto-activates background tabs when `tabId` is passed, so JS synthetic events always fire
+
 ### Performance notes
 
 | Command | Typical time |
 |---|---|
-| `navigate` | ~1.5s (waits for `readyState=complete` + screenshot) |
-| `click` / `click_element` | ~0.7s (consistent — no jitter overhead) |
+| `navigate` | ~1.5s (waits for tab load + screenshot) |
+| `click` | ~0.7s (consistent — no jitter overhead) |
 | `type` (default) | ~85ms/char + screenshot |
 | `type` with `fast:true` | ~0.6s flat regardless of length |
 | `screenshot` | ~0.5s |
 | `scroll` | ~0.6s (JS `scrollBy` with `behavior:instant` — overrides CSS smooth scroll) |
-| `query` / `find_element` | ~0.05–0.1s |
+| `query` | ~0.05–0.1s |
 
 ## Project structure
 
@@ -101,7 +115,7 @@ tiny-browser/
     server.mjs        HTTP REST server + WebSocket bridge + screenshot grid overlay
   extension/
     manifest.json     Manifest V3
-    background.js     Service worker: WS client, CDP command dispatcher, shadow DOM support
+    background.js     Service worker: WS client, CDP command dispatcher
     popup.html/js     Status indicator
   SKILL.md            AI agent instructions (auto-installed to ~/.cursor/skills/ on server start)
   package.json

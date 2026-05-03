@@ -11,7 +11,7 @@
  *   tiny-browser help navigate            # show help for one command
  *   tiny-browser screenshot               # take screenshot
  *   tiny-browser navigate '{"url":"..."}' # send command with JSON params
- *   tiny-browser click_element '{"text":"Submit","exact":true}'
+ *   tiny-browser click '{"x":350,"y":200}'
  */
 
 import http from 'http';
@@ -42,28 +42,14 @@ const COMMANDS = [
     name: 'wait',
     params: '[{"timeout":10000,"tabId":N}]',
     returns: '{"ready":true,"screenshot":"..."}',
-    desc: 'Block until document.readyState === "complete". Use after navigate or form submit.',
-    auto_screenshot: true,
-  },
-  {
-    name: 'wait_for_element',
-    params: '{"selector":"css" | "text":"label" [,"exact":bool,"within_selector":"css","timeout":10000,"tabId":N]}',
-    returns: '{"found":true,"screenshot":"..."}',
-    desc: 'Poll until an element appears with a non-zero bounding box. Essential for SPAs where readyState fires before React/Vue renders buttons.',
+    desc: 'Block until the tab finishes loading. Use after navigate or form submit. Follow with a screenshot to visually confirm the page state.',
     auto_screenshot: true,
   },
   {
     name: 'click',
-    params: '{"x":N,"y":N[,"tabId":N]}',
+    params: '{"x":N,"y":N[,"precise":bool,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Click at viewport coordinates (getBoundingClientRect values, scroll-adjusted). Use grid labels from screenshot — they represent page coordinates which may differ after scrolling.',
-    auto_screenshot: true,
-  },
-  {
-    name: 'click_element',
-    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"frame_selector":"css","tabId":N]}',
-    returns: '{"found":true,"x":N,"y":N,"tag":"BUTTON","text":"...","screenshot":"..."}',
-    desc: 'Find an interactive element by text or CSS selector and click its centre. Scrolls into view automatically. Falls back to shadow DOM if light DOM returns nothing. Use frame_selector to target elements inside a same-origin <iframe>. Use x_max/within_selector to disambiguate duplicate text.',
+    desc: 'Click at viewport coordinates. Read grid labels from the screenshot — those values are the click coordinates. Set precise:true for exact pixel targeting (data tables, grids); default adds human-like timing.',
     auto_screenshot: true,
   },
   {
@@ -89,9 +75,9 @@ const COMMANDS = [
   },
   {
     name: 'drag',
-    params: '{"fromX":N,"fromY":N,"toX":N,"toY":N[,"steps":10,"duration":300,"tabId":N]}',
+    params: '{"fromX":N,"fromY":N,"toX":N,"toY":N[,"steps":10,"duration":300,"html5":bool,"tabId":N]}',
     returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Drag from (fromX, fromY) to (toX, toY). steps controls how many intermediate mouseMoved events are sent (default 10, increase for smoother drags). duration is total drag time in ms (default 300). Works on Kanban boards, sortable lists, resizable panels, canvas drawing, range sliders.',
+    desc: 'Drag from (fromX, fromY) to (toX, toY). Set html5:true for apps that use the HTML5 Drag and Drop API (dragstart/dragover/drop events) — e.g. the-internet drag & drop demo. Default (html5:false) uses CDP mouse events and works for canvas, range sliders, Kanban boards using pointermove. steps and duration only apply to the default mode.',
     auto_screenshot: true,
   },
   {
@@ -104,16 +90,9 @@ const COMMANDS = [
   {
     name: 'scroll',
     params: '{"deltaY":N[,"deltaX":N,"x":N,"y":N,"tabId":N]}',
-    returns: '{"ok":true,"screenshot":"..."}',
-    desc: 'Scroll the page. Positive deltaY = down, negative = up. Pass x,y to target a specific scrollable container at those viewport coordinates (e.g. a sidebar or modal) instead of the page-center default.',
+    returns: '{"ok":true,"scrollY":N,"scrollX":N,"screenshot":"..."}',
+    desc: 'Scroll the page. Positive deltaY = down, negative = up. Pass x,y to target a specific scrollable container. Response includes scrollY/scrollX so you can adjust click coordinates without a separate query.',
     auto_screenshot: true,
-  },
-  {
-    name: 'find_element',
-    params: '{"text":"label" | "selector":"css" [,"exact":bool,"x_max":N,"within_selector":"css","nth":N,"visible_only":bool,"frame_selector":"css","tabId":N]}',
-    returns: '{"found":true,"x":N,"y":N,"tag":"BUTTON","text":"...","href":"..."}',
-    desc: 'Find element and return its viewport centre coordinates without clicking. Pierces shadow DOM automatically. Use frame_selector to scope to a same-origin <iframe> (e.g. "#payment-iframe"). Returned x/y are main-viewport coordinates, usable directly with /click.',
-    auto_screenshot: false,
   },
   {
     name: 'get_url',
@@ -163,6 +142,27 @@ const COMMANDS = [
     returns: '{"ok":true}',
     desc: 'Close a tab. Defaults to the current active tab.',
     auto_screenshot: false,
+  },
+  {
+    name: 'get_dialog',
+    params: '[{"tabId":N}]',
+    returns: '{"type":"alert","message":"..."} | null',
+    desc: 'Return the pending JS dialog (alert/confirm/prompt) for the tab, or null if none is open. Use before dismiss_dialog to read the message. Does not block.',
+    auto_screenshot: false,
+  },
+  {
+    name: 'dismiss_dialog',
+    params: '[{"accept":bool,"promptText":"...","tabId":N}]',
+    returns: '{"ok":true}',
+    desc: 'Accept or cancel the pending JS dialog. accept:true (default) = OK/Accept, accept:false = Cancel/Dismiss. Use promptText to fill in prompt() dialogs. Unblocks the tab immediately — all subsequent commands work normally.',
+    auto_screenshot: false,
+  },
+  {
+    name: 'set_file_input',
+    params: '{"files":"/abs/path" | ["/path1","/path2"][,"selector":"css","tabId":N]}',
+    returns: '{"ok":true,"screenshot":"..."}',
+    desc: 'Set files on a native <input type="file"> without opening the OS file picker. files is an absolute path string or array of paths. selector defaults to input[type="file"]. Response includes auto-screenshot showing the updated filename label.',
+    auto_screenshot: true,
   },
   {
     name: 'enable_network',

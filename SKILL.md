@@ -42,23 +42,36 @@ When unsure about params or return format, **run `tiny-browser help COMMAND` fir
 ## Core loop
 
 ```
-screenshot → Read PNG → identify target → act
+screenshot → Read PNG → read grid label → click x,y
 → response includes "screenshot" field → Read it → act again → …
 ```
 
-Action commands (`click`, `navigate`, `click_element`, etc.) automatically include a
-`"screenshot"` field — **read that path immediately** instead of a separate screenshot call.
+Always start by taking a screenshot. The image has a bold red coordinate grid every
+100 px — **use the label values as click coordinates, not the visual pixel positions
+in the rendered image.**
 
-Screenshots have a bold red coordinate grid every 100 px. **Use the label values as click
-coordinates — not the visual pixel positions in the rendered image.**
+Action commands (`click`, `navigate`, `type`, etc.) automatically include a
+`"screenshot"` field — **read that path immediately** instead of a separate screenshot call.
 
 ## Patterns
 
-**Fill / clear an input**
+**Identify and click any element**
 ```bash
-tiny-browser click_element '{"selector":"input[name=email]"}'
+# Always start with a screenshot
+tiny-browser screenshot
+# Read the PNG — find the element in the grid, note its coordinates
+# Click at those coordinates
+tiny-browser click '{"x":350,"y":240}'
+# The response includes a screenshot — read it to confirm
+```
+
+**Fill a text field**
+```bash
+tiny-browser screenshot
+# Read grid coordinates of the input field
+tiny-browser click '{"x":400,"y":300}'
 tiny-browser key_press '{"key":"SelectAll"}'
-tiny-browser type '{"text":"new@email.com"}'
+tiny-browser type '{"text":"new value"}'
 ```
 
 **Type a long string fast** — skip per-keystroke delays (~10× faster for strings > 10 chars)
@@ -66,19 +79,25 @@ tiny-browser type '{"text":"new@email.com"}'
 tiny-browser type '{"text":"long paragraph or a search query here","fast":true}'
 ```
 
-**Navigate to SPA — wait for interactive content**
+**Navigate and wait for content to appear**
 ```bash
-# navigate waits for readyState=complete internally. SPAs may hydrate later:
 tiny-browser navigate '{"url":"https://example.com/app"}'
-tiny-browser wait_for_element '{"selector":"button[type=submit]","timeout":8000}'
+# navigate waits for tab load internally. SPAs may hydrate later:
+# use wait + screenshot loop to confirm interactive content is visible
+tiny-browser wait '{"timeout":8000}'
+# Read the auto-screenshot to verify the page is ready
 ```
 
 **Form inside a modal**
 ```bash
-tiny-browser click_element '{"text":"Book slot"}'   # scrolls into view automatically
-tiny-browser key_press '{"key":"Tab"}'
+tiny-browser screenshot
+# Read coordinates of the "Open" / trigger button
+tiny-browser click '{"x":N,"y":N}'
+# Read the auto-screenshot — modal is now visible
+# Read coordinates of each field and the submit button
+tiny-browser click '{"x":N,"y":N}'   # focus first field
 tiny-browser type '{"text":"value"}'
-tiny-browser click_element '{"text":"Submit","exact":true}'
+tiny-browser click '{"x":N,"y":N}'   # submit button
 ```
 
 **Select from a native `<select>` dropdown**
@@ -89,10 +108,14 @@ tiny-browser select_option '{"selector":"select[name=country]","value":"US"}'
 tiny-browser select_option '{"selector":"#sort","text":"Newest first"}'
 ```
 
-**Open a custom (non-native) dropdown option**
+**Open a custom (non-native) dropdown**
 ```bash
-# Use selector= not text= — text-match can hit same-word elements behind the overlay
-tiny-browser click_element '{"selector":"li[role=option]"}'
+tiny-browser screenshot
+# Read coordinates of the dropdown trigger
+tiny-browser click '{"x":N,"y":N}'
+# Read the auto-screenshot — options are now visible
+# Read coordinates of the desired option
+tiny-browser click '{"x":N,"y":N}'
 ```
 
 **Trigger a hover-activated menu or tooltip**
@@ -102,7 +125,7 @@ tiny-browser screenshot
 # Move the mouse to the nav item — CSS :hover activates, dropdown appears
 tiny-browser hover '{"x":350,"y":60}'
 # Read the screenshot in the response, then click the revealed option
-tiny-browser click_element '{"text":"Settings"}'
+tiny-browser click '{"x":N,"y":N}'
 ```
 
 **Drag and drop (Kanban, sortable lists, resizable panels)**
@@ -114,16 +137,44 @@ tiny-browser drag '{"fromX":200,"fromY":300,"toX":600,"toY":300,"steps":20,"dura
 # Read the auto-screenshot to confirm the drop landed correctly
 ```
 
+**HTML5 drag & drop (sites using dragstart/dragover/drop events)**
+```bash
+# Some sites (e.g. the-internet.herokuapp.com/drag_and_drop) use the HTML5
+# DnD API; standard mouse events don't trigger it — use html5:true
+tiny-browser screenshot
+tiny-browser drag '{"fromX":200,"fromY":300,"toX":600,"toY":300,"html5":true}'
+# Read the auto-screenshot to confirm
+```
+
+**Handle a JS alert / confirm / prompt**
+```bash
+# If a page fires window.alert/confirm/prompt, the tab freezes for other commands.
+# Check for an open dialog first:
+tiny-browser get_dialog
+# → {"type":"alert","message":"Are you sure?"} or null
+
+# Accept it (OK button):
+tiny-browser dismiss_dialog '{"accept":true}'
+# Cancel it:
+tiny-browser dismiss_dialog '{"accept":false}'
+# Fill in a prompt() and accept:
+tiny-browser dismiss_dialog '{"accept":true,"promptText":"my answer"}'
+# After dismissal all commands work normally again
+```
+
+**Set a native file input without an OS picker**
+```bash
+# Bypass the OS file picker entirely — set the file path directly via CDP
+tiny-browser set_file_input '{"files":"/absolute/path/to/file.pdf"}'
+# Multiple files on a multi-select input:
+tiny-browser set_file_input '{"files":["/path/a.jpg","/path/b.jpg"],"selector":"#avatar-upload"}'
+# Response includes auto-screenshot showing the updated filename label
+```
+
 **Read a long article without truncation**
 ```bash
 # Default text_limit is 4000 chars — use a higher value for long-form content
 tiny-browser read_page '{"text_limit":20000}'
-```
-
-**Disambiguate duplicate buttons**
-```bash
-tiny-browser click_element '{"text":"Subscribe","exact":true,"x_max":400}'
-# or: "within_selector":"section.main-card"  |  "nth":0  |  "visible_only":true
 ```
 
 **Follow a link reliably** — `read_page` returns up to 100 links; for link-heavy pages use `query` to extract more
@@ -163,14 +214,14 @@ tiny-browser navigate '{"url":"https://search.example.com/?q=your+query"}'
 tiny-browser navigate '{"url":"https://app.com"}'
 tiny-browser enable_network
 TS=$(date +%s%3N)
-tiny-browser click_element '{"text":"Submit"}'
+tiny-browser click '{"x":N,"y":N}'
 tiny-browser get_network "{\"since\":$TS}"
 ```
 
 **Console errors after an action**
 ```bash
 TS=$(date +%s%3N)
-tiny-browser click_element '{"text":"Submit"}'
+tiny-browser click '{"x":N,"y":N}'
 tiny-browser get_console "{\"since\":$TS}"
 ```
 
@@ -201,37 +252,37 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 
 - **Auto-screenshot**: action responses include `"screenshot"` — read it immediately, don't call screenshot separately
 - **`hover` first-call latency**: the first `hover` in a session incurs a ~1–5 s Chrome CDP input-pipeline init cost; subsequent calls are fast. The auto-screenshot in the response confirms the hover state was reached.
-- **SPA hydration**: `navigate` waits for `readyState=complete` but React/Vue may render buttons after that — use `wait_for_element` on the specific element before acting
-- **Off-screen elements**: `click_element` scrolls into view automatically
-- **Modals / overlays**: use `click_element` + Tab navigation — a missed coordinate click dismisses the overlay
-- **Dropdown options**: use `{"selector":"li[role=option]"}` not `{"text":"…"}` when a dropdown is open — text-match hits background elements
-- **Pre-filled inputs**: `click_element` to focus → `SelectAll` → `type` new value
-- **Shadow DOM**: `find_element`/`click_element` automatically fall back to shadow DOM search; for manual inspection use `query` with `el.shadowRoot`
-- **Duplicate elements**: same button text in header and sidebar — scope with `x_max`, `within_selector`, or `nth`
+- **SPA hydration**: `navigate` waits for tab load but React/Vue may render after that — use `wait` + screenshot loop to confirm the page is interactive before acting
+- **Off-screen elements**: scroll to bring elements into view before clicking (`scroll '{"deltaY":300}'`), then take a screenshot to get fresh coordinates
+- **Modals / overlays**: click in the modal boundary — a click outside dismisses it
+- **Native `<select>` dropdowns**: OS-level pickers don't appear in screenshots; use `select_option` to set them by value or text
+- **Custom dropdowns**: click the trigger → read auto-screenshot → click the option at its coordinates
+- **Pre-filled inputs**: click to focus → `key_press SelectAll` → `type` new value
 - **Click coordinates are viewport-relative**: screenshot grid labels = CSS pixel coords (DPR-corrected) — use them directly as click coordinates
 - **React inputs on background tabs**: CDP `type` bypasses synthetic events — use `?q=` URL params or `switch_tab` to activate first
 - **enable_network order**: call after `navigate`, not before — early call can attach to a `chrome://` tab
 - **New tabs from links**: after a `target="_blank"` click, use `list_tabs` → `switch_tab` to follow it
 - **Search engine hrefs**: result links are wrapped — extract via `a[href*=target-domain]`, not result card selectors
-- **CSS selectors**: never guess class names — use the "Discover selector" pattern first
-- **Cookie banners**: `click_element '{"text":"Accept"}'` before interacting
-- **exact:true**: use when multiple elements share the same word (e.g. "Book" vs "Book appointment")
 - **`bash &` warning**: `zsh: nice(5) failed: operation not permitted` is a harmless sandbox restriction
 - **Slow background tabs**: screenshot default timeout 20s — pass `{"timeout_ms":30000}` if it times out
 - **query returns null**: `query` returns `{result:null}` when the expression evaluates to `undefined` (e.g. missing selector via optional chaining) — check for null before using the result
 - **read_page link cap**: `read_page` returns up to 100 links; use `query` with a custom expression for more
 - **Fast typing**: `"fast":true` uses `Input.insertText` — one CDP round trip for any string length (~50ms flat). Fires `input`/`beforeinput` but not `keydown`/`keyup`; works for most React/Vue forms. Omit for sites that require per-key events
 - **scroll is instant**: `scroll` uses `window.scrollBy({behavior:'instant'})` — it overrides CSS `scroll-behavior:smooth` and completes in ~0.6s; scrollY is at the final position immediately after the call returns
-- **scroll takes `deltaY`/`deltaX`**: positive deltaY scrolls down, negative scrolls up; no `x`/`y` center params needed
+- **scroll takes `deltaY`/`deltaX`**: positive deltaY scrolls down, negative scrolls up
 - **scroll on SPAs (LinkedIn, Gmail, etc.)**: if the page uses an inner scroll container, `scroll` auto-detects it by checking whether `window.scrollY` changed; if not, it finds the deepest `overflow:auto/scroll` ancestor at the viewport center and scrolls that instead — no special params needed
 - **newlines in `type`**: `\n` in the text string dispatches a real Enter keypress (keyCode 13); works in textareas and GitHub/Notion editors; `\t` dispatches Tab
-- **CSS selector attribute values with brackets**: `input[name=foo[bar]]` is invalid CSS — always quote attribute values: `input[name="foo[bar]"]`. Invalid selectors now silently fall through to text-match rather than crashing
 - **multi-step data pipelines**: use Python (`python3 - <<'PYEOF'`) not bash arrays when iterating over dynamic data with spaces — bash subshells break array accumulation and spaces break word-splitting
 - **stale tabs**: tabs opened before a server restart show ERR_FILE_NOT_FOUND; always open fresh tabs with `new_tab` at the start of a workflow
-- **UI-first navigation**: always click through the visible UI (Locations → type → autocomplete → Show results) rather than guessing URL parameters (geoUrn, etc.) — parameter values are opaque and wrong guesses waste time
+- **UI-first navigation**: always click through the visible UI rather than guessing URL parameters — parameter values are opaque and wrong guesses waste time
 - **`read_page` on active tab only**: `read_page` works best on the active tab; for background tabs, `switch_tab` first, then call `read_page`
 - **`read_page` link cap on nav-heavy pages**: Wikipedia and similar pages put 50+ language sidebar links first in the DOM, filling the 100-link cap before article content links appear. Use `within_selector` to scope: `read_page '{"within_selector":"#mw-content-text"}'`
-- **`find_element` nth with selector**: `{"selector":".toggle","nth":1}` now correctly returns the 2nd matching element. Previously `querySelector` always returned element 0 regardless of nth. Fixed: uses `querySelectorAll(sel)[nth]` directly.
-- **`navigate` error detection**: `navigate` now returns `{"ok":false,"error":"Navigation failed: page could not be loaded"}` when Chrome lands on an error page (DNS failure, connection refused, etc.) instead of silently returning `ok:true`. Check `ok` before proceeding.
+- **`navigate` error detection**: `navigate` returns `{"ok":false,"error":"Navigation failed: page could not be loaded"}` when Chrome lands on an error page (DNS failure, connection refused, etc.) instead of silently returning `ok:true`. Check `ok` before proceeding.
 - **`drag` steps for SPAs**: increase `steps` (default 10) to 20–30 for apps that use `pointermove` to track position (Linear, Trello, Figma). Too few steps can cause the drag to "snap" without triggering the drop target.
+- **`drag html5` vs default**: use `html5:true` when the site relies on the HTML5 Drag and Drop API (`dragstart`/`dragover`/`drop` events). Use the default (mouse events) for canvas, range sliders, or pointer-event-based UIs. Both modes accept the same source/target coordinates from the screenshot grid.
+- **JS alert freezes tab**: when `window.alert/confirm/prompt` fires, ALL subsequent commands on that tab block for 30s then fail. Use `get_dialog` to detect the open dialog, then `dismiss_dialog` to unblock — this works even while V8 is paused. Never send any other command to the tab before dismissing the dialog.
+- **`set_file_input` requires absolute paths**: paths must be absolute on the machine running Chrome (not the agent machine if different). Selector defaults to `input[type="file"]`; pass `selector` when a page has multiple file inputs.
+- **scroll returns scrollY/scrollX**: the `scroll` response now includes `scrollY` and `scrollX` — use these to offset click coordinates for elements that are now in view after scrolling. This avoids a separate `query` round-trip to get scroll position.
+- **background tab click auto-activates**: when you pass an explicit `tabId` to `click`, the extension now automatically activates that tab before sending the mouse event so JS synthetic events fire correctly. You don't need a manual `switch_tab` first.
+- **Shadow DOM and `query`**: `document.querySelector` doesn't pierce shadow roots. For data inside shadow DOM components, query through the host: `document.querySelector('my-component').shadowRoot.querySelector('.price')?.textContent`. Clicks still work via coordinates — the visual loop is unaffected.
 - **`read_page` text_limit**: pass `{"text_limit":20000}` for long articles — the default 4000-char cap truncates most real documentation pages
