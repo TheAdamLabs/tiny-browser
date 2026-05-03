@@ -193,9 +193,23 @@ function detectBoxes({ draw = false } = {}) {
     return cardScore(el) >= 3;
   });
 
-  const innermostCards = allCardCandidates.filter(el =>
-    !allCardCandidates.some(other => other !== el && el.contains(other))
-  );
+  // Keep only "leaf" card candidates: elements that don't contain other card candidates.
+  // Exception: keep a parent if it has meaningful text AND all its card children are
+  // same-size layout wrappers with no independent text (e.g. GitHub blog featured card
+  // wrapped in a full-size col-12 div).
+  const innermostCards = allCardCandidates.filter(el => {
+    const children = allCardCandidates.filter(o => o !== el && el.contains(o));
+    if (children.length === 0) return true;
+    const elText = textOf(el).trim();
+    const childrenWithOwnText = children.filter(c => {
+      const ct = textOf(c).trim();
+      // "own text" means the child adds different/shorter text than parent — i.e. it's
+      // not just a same-content wrapper but a genuinely distinct nested card.
+      return ct.length > 10 && ct !== elText && ct.length < elText.length * 0.95;
+    });
+    // If every child candidate is a same-content layout wrapper, keep the parent.
+    return childrenWithOwnText.length === 0;
+  });
 
   const dedupedCards = innermostCards.filter((el, _, arr) => {
     const r = el.getBoundingClientRect();
