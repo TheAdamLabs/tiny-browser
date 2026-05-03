@@ -6,6 +6,7 @@ alwaysApply: false
 # Test-and-Improve Loop
 
 Use this procedure whenever asked to "test and improve", "test on <site>", or "run the improvement loop".
+Each iteration should be fully autonomous — do not stop to ask for direction between phases.
 
 ## Phase 1 — Sweep
 
@@ -37,6 +38,15 @@ For each flagged page and each interaction pattern to verify, run targeted tests
 | File input | `set_file_input` |
 | Modal close | Look for cursor:pointer elements in boxes[] or use `query` for the rect |
 
+Also proactively try **more challenging scenarios** not explicitly requested — multi-step flows, edge cases, and interactions that stress-test the tooling:
+- Multi-step form fill → submit → verify success message detected in boxes[]
+- Nested modals or overlays that change what detect_boxes returns
+- Pages with lazy-loaded / AJAX content: scroll → re-detect → interact
+- Tabs opened by links (target="_blank"): detect via list_tabs → switch → detect_boxes
+- Pages with iframes: test same-origin (detect_boxes works) vs cross-origin (screenshot fallback)
+- Rapid repeated actions: add 5 items, delete 3, verify count
+- Keyboard-only flows: tab through form fields with key_press Tab → verify focus order
+
 ## Phase 3 — Classify Issues
 
 Bucket each problem into one of three categories:
@@ -46,6 +56,11 @@ Bucket each problem into one of three categories:
 | **Broken** | Command returns error / wrong result | Must fix |
 | **Suboptimal** | Works but requires workaround | Should fix |
 | **Limitation** | Fundamental CDP/browser constraint | Document in SKILL.md |
+
+Also propose in this phase:
+- **New features** — commands or params missing that would make common workflows shorter (e.g. a `fill` shortcut that clicks + types in one call, a `wait_for_boxes` that polls detect_boxes until a selector appears)
+- **Simplifications** — anything in the codebase that is more complex than it needs to be
+- **Detection improvements** — element patterns that consistently escape detect_boxes across sites
 
 Common fixable issues in this codebase:
 - Elements not detected by `detect_boxes` → fix `extension/page-extractor.js` (selector, area threshold, new detection pass)
@@ -57,22 +72,31 @@ Common fixable issues in this codebase:
 1. Edit `extension/page-extractor.js` for detection improvements
 2. Edit `extension/background.js` for new/extended commands
 3. Edit `bin/tiny-browser.mjs` for CLI/help catalogue
-4. Edit `SKILL.md` for workflow gotchas
-5. Run `npm run lint` — fix any errors before proceeding
-6. Run `npm install -g .` to update the global binary
-7. Restart the server: `pkill -f "node.*server.mjs"; tiny-browser &`
-8. Ask the user to **reload the Chrome extension** at `chrome://extensions` (background.js and page-extractor.js changes require this)
+4. Edit `bin/server.mjs` if AUTO_SCREENSHOT / AUTO_DETECT sets or settle timings change
+5. Update `SKILL.md` — add new gotchas, update workflows, remove stale patterns
+6. Update `README.md` — reflect new commands, updated performance table, usage examples
+7. Run `npm run lint` — fix any errors before proceeding
+8. Run `npm install -g .` to update the global binary
+9. Restart the server: `pkill -f "node.*server.mjs"; tiny-browser &`
+10. Ask the user to **reload the Chrome extension** at `chrome://extensions` (background.js and page-extractor.js changes require this)
 
 ## Phase 5 — Retest
 
 Open **fresh tabs** (old tabs may be stale after server restart). Re-run `detect_boxes` on all previously-broken pages. Run functional tests for each fixed scenario. Confirm no regressions on previously-passing pages.
 
-## Phase 6 — Commit
+## Phase 6 — Document & Commit
+
+Before committing, verify:
+- `SKILL.md` reflects every new command, param, or gotcha introduced in this iteration
+- `README.md` usage examples and performance table are up to date
+- `bin/tiny-browser.mjs` COMMANDS catalogue matches what `background.js` actually accepts
+
+Then commit:
 
 ```bash
 cd /Users/adam.pavlat/projects/personal/tiny-browser-mcp
 git add -A
-git commit -m "fix: <summary of what was fixed>"
+git commit -m "fix/feat: <summary>"
 git push
 ```
 
@@ -84,7 +108,8 @@ git push
 | `extension/background.js` | CDP command handlers |
 | `bin/tiny-browser.mjs` | CLI entry point + COMMANDS catalogue |
 | `bin/server.mjs` | HTTP/WS server, AUTO_SCREENSHOT, AUTO_DETECT sets |
-| `SKILL.md` | Agent workflow docs and gotchas |
+| `SKILL.md` | Agent workflow docs and gotchas — keep exhaustively up to date |
+| `README.md` | Human-facing docs — update examples and performance table each iteration |
 
 ## Parallelism notes
 

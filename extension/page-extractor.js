@@ -58,6 +58,47 @@ function detectBoxes({ draw = false } = {}) {
     return (iw * ih) / Math.max(1, Math.min(area(a), area(b)));
   };
 
+  // Extra metadata per element — only non-default values are included to keep
+  // the payload compact. Eliminates most follow-up query() calls for state.
+  const metaOf = el => {
+    const tag = el.tagName;
+    const m = {};
+    if (tag === 'INPUT') {
+      m.inputType = el.type || 'text';
+      if (el.disabled) m.disabled = true;
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        m.checked = el.checked;
+      } else if (!['file','password','submit','button','image','reset'].includes(el.type)) {
+        if (el.value) m.value = el.value.slice(0, 60);
+      }
+    } else if (tag === 'TEXTAREA') {
+      if (el.disabled) m.disabled = true;
+      if (el.value) m.value = el.value.slice(0, 60);
+    } else if (tag === 'SELECT') {
+      if (el.disabled) m.disabled = true;
+      const opt = el.options[el.selectedIndex];
+      if (opt && el.selectedIndex > 0) m.value = opt.text.trim().slice(0, 60);
+    } else if (tag === 'BUTTON') {
+      if (el.disabled) m.disabled = true;
+    } else if (tag === 'A') {
+      const raw = el.getAttribute('href');
+      if (raw) {
+        if (raw.startsWith('http')) {
+          try {
+            const u = new URL(el.href);
+            m.href = u.origin === location.origin
+              ? (u.pathname + u.search) : raw.slice(0, 80);
+          } catch { m.href = raw.slice(0, 80); }
+        } else {
+          m.href = raw.slice(0, 80);
+        }
+      }
+    }
+    // ARIA disabled covers role-based controls
+    if (el.getAttribute('aria-disabled') === 'true') m.disabled = true;
+    return m;
+  };
+
   // ── PASS 1: CONTROLS ─────────────────────────────────────────────────────────
   const ctrlSel = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="menuitem"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[role="searchbox"]';
 
@@ -77,7 +118,7 @@ function detectBoxes({ draw = false } = {}) {
     if (!hasLabel && !isLargeEnough && !isToggleControl) return [];
     const isIconOnly = !t && el.querySelector('svg,img') && elArea < 1300;
     if (isIconOnly) return [];
-    return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el) }];
+    return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el), ...metaOf(el) }];
   });
 
   const controls = rawControls.filter((c, _, arr) =>
@@ -186,7 +227,7 @@ function detectBoxes({ draw = false } = {}) {
     if (isLayoutWrapper(el, r)) return [];
     // Skip if area is already covered by a standard control
     if (ctrlRects.some(cr => overlaps(cr, r) > 0.5)) return [];
-    return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el) }];
+    return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el), ...metaOf(el) }];
   });
 
   // ── MERGE, INDEX, ADD id ──────────────────────────────────────────────────────
