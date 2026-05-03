@@ -225,8 +225,11 @@ function detectBoxes({ draw = false } = {}) {
     if (t.length < 3) return [];
     if (getComputedStyle(el).cursor !== 'pointer') return [];
     if (isLayoutWrapper(el, r)) return [];
-    // Skip if area is already covered by a standard control
+    // Skip if already a standard control
     if (ctrlRects.some(cr => overlaps(cr, r) > 0.5)) return [];
+    // Skip if this element IS one of the detected cards (same DOM node) — prevents
+    // card elements with cursor:pointer from appearing in both C* and K* slots.
+    if (dedupedCards.includes(el)) return [];
     return [{ el, tag: el.tagName.toLowerCase(), kind: 'control', text: t, rect: r, selector: pathOf(el), ...metaOf(el) }];
   });
 

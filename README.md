@@ -79,11 +79,20 @@ The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
+### New commands / improvements (v0.5)
+
+| Change | What it does |
+|---|---|
+| `detect_boxes` items now include state metadata | Each item carries `inputType`, `checked`, `disabled`, `value`, `href` when present — eliminates most follow-up `query` calls to decide how to interact |
+| `click` — `button` param | `button:"right"` dispatches a right-click (fires `contextmenu` event) |
+| `cursor:pointer` element detection | Non-semantic click targets (`<p>`, `<div>`, `<span>`) with `cursor:pointer` are now auto-detected as controls — catches close buttons, custom toggles |
+| `drag` auto-activates background tabs | Like `click`, `drag` now activates the target tab when `tabId` is passed — no more timeout on background tab drags |
+
 ### New commands (v0.4)
 
 | Command | What it does |
 |---|---|
-| `detect_boxes` | Returns all visible controls / cards / images with bounding boxes and center coordinates — primary navigation method, ~5–10× fewer tokens than a screenshot |
+| `detect_boxes` | Returns all visible controls / cards / images with bounding boxes, center coords, and state metadata — primary navigation method, ~5–10× fewer tokens than a screenshot |
 
 ### New commands (v0.3)
 

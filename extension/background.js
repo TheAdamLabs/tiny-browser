@@ -523,6 +523,12 @@ async function cmdType({ text, x, y, tabId, fast = false, replace = false, frame
  */
 async function cmdDrag({ fromX, fromY, toX, toY, tabId, steps = 10, duration = 300, html5 = false } = {}) {
   const tab = await resolveTab({ tabId });
+  // Activate the target tab for the same reason as cmdClick — the Chrome CDP
+  // input pipeline lazy-initialises per active tab and will stall for up to 30s
+  // on a background tab, causing timeout errors.
+  if (tabId != null && !tab.active) {
+    await chrome.tabs.update(tab.id, { active: true });
+  }
   const target = await ensureDebugger(tab.id);
 
   if (html5) {
