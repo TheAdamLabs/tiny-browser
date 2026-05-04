@@ -79,6 +79,15 @@ The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
+### New commands / improvements (v0.7)
+
+| Change | What it does |
+|---|---|
+| `list_frames` (new) | Lists all frames (main + iframes) in a tab — returns `frameId`, `url`, `name`, `depth` |
+| `detect_boxes` — `frameId` param | Pass a `frameId` from `list_frames` to detect elements inside an iframe (embedded apps, payment widgets, sandboxed demos) |
+| `query` — `frameId` param | Same: run any JS expression inside a specific frame context |
+| Nav/header cards excluded | `detect_boxes` no longer returns card candidates that are descendants of `<header>`, `<nav>`, `<footer>`, or `role=navigation/banner` — reduces noise on Wikipedia-style sites significantly |
+
 ### Detection quality improvements (v0.6)
 
 | Fix | What changed |

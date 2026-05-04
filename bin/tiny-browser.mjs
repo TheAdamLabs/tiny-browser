@@ -33,9 +33,16 @@ const COMMANDS = [
   },
   {
     name: 'detect_boxes',
-    params: '[{"draw":bool,"tabId":N}]',
+    params: '[{"draw":bool,"tabId":N,"frameId":"str"}]',
     returns: '{"items":[{"id":"C0","kind":"control","tag":"button","text":"Submit","rect":{"top":N,"left":N,"right":N,"bottom":N,"width":N,"height":N},"selector":"...","index":N},...]}}',
-    desc: 'Extract all visible interactive controls (C*), semantic cards (K*), and significant images (I*) from the current viewport with their CSS-pixel bounding boxes. Primary navigation method — use cx = rect.left + rect.width/2 and cy = rect.top + rect.height/2 as click coordinates. ~5–10× fewer tokens than a screenshot. draw:true overlays coloured boxes on the page (pair with screenshot for visual debugging).',
+    desc: 'Extract all visible interactive controls (C*), semantic cards (K*), and significant images (I*) from the current viewport with their CSS-pixel bounding boxes. Primary navigation method — use cx = rect.left + rect.width/2 and cy = rect.top + rect.height/2 as click coordinates. ~5–10× fewer tokens than a screenshot. draw:true overlays coloured boxes on the page. Pass frameId (from list_frames) to inspect inside an iframe.',
+    auto_screenshot: false,
+  },
+  {
+    name: 'list_frames',
+    params: '[{"tabId":N}]',
+    returns: '{"frames":[{"frameId":"str","url":"https://...","name":"","depth":0},...]}',
+    desc: 'List all frames (main + iframes) in the tab. Use frameId with detect_boxes or query to inspect iframe content — needed for embedded apps, payment widgets, or any site that uses iframes.',
     auto_screenshot: false,
   },
   {

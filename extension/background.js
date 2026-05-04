@@ -236,6 +236,7 @@ async function dispatch(msg) {
       case 'dismiss_dialog': return await cmdDismissDialog(msg.params);
       case 'set_file_input': return await cmdSetFileInput(msg.params);
       case 'detect_boxes':   return await cmdDetectBoxes(msg.params);
+      case 'list_frames':    return await cmdListFrames(msg.params);
       default:               return { error: `unknown command: ${msg.command}` };
     }
   } catch (err) {
@@ -781,19 +782,36 @@ async function cmdSelectOption({ selector, text, value, tabId } = {}) {
  * Designed for structured data extraction only — not for interaction.
  * The expression must return something JSON.stringify-able.
  */
-async function cmdQuery({ expression, tabId } = {}) {
+async function cmdQuery({ expression, tabId, frameId } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
-  const { result, exceptionDetails } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-    expression: `JSON.stringify(${expression})`,
-    returnByValue: true,
-  });
+
+  let evalOptions = { expression: `JSON.stringify(${expression})`, returnByValue: true };
+
+  if (frameId) {
+    const { executionContextId } = await chrome.debugger.sendCommand(
+      target, 'Page.createIsolatedWorld', { frameId, worldName: 'tiny-mcp-query' }
+    );
+    evalOptions.contextId = executionContextId;
+  }
+
+  const { result, exceptionDetails } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', evalOptions);
   if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? 'JS error');
-  // result.value is undefined when the expression evaluates to undefined (e.g. optional chaining
-  // on a missing element). JSON.parse(undefined) would throw "undefined is not valid JSON".
-  // Use result.value ?? null as the raw string; 'null' parses to JSON null.
   const raw = result.value ?? null;
   return { result: raw === null ? null : JSON.parse(raw) };
+}
+
+async function cmdListFrames({ tabId } = {}) {
+  const tab = await resolveTab({ tabId });
+  const target = await ensureDebugger(tab.id);
+  const { frameTree } = await chrome.debugger.sendCommand(target, 'Page.getFrameTree', {});
+
+  const flatten = (node, depth = 0) => {
+    const f = node.frame;
+    const entry = { frameId: f.id, url: f.url || '(about:blank)', name: f.name || '', depth };
+    return [entry, ...(node.childFrames ?? []).flatMap(c => flatten(c, depth + 1))];
+  };
+  return { frames: flatten(frameTree) };
 }
 
 async function cmdReadPage(params = {}) {
@@ -1016,18 +1034,26 @@ async function cmdSetFileInput({ selector, files, tabId } = {}) {
  * draw — overlay coloured bounding boxes on the page (default false).
  *        Use draw:true paired with a screenshot for visual debugging only.
  */
-async function cmdDetectBoxes({ draw = false, tabId } = {}) {
+async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
   if (!detectBoxesSource) throw new Error('page-extractor.js not loaded yet — retry in a moment');
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
-  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
-    // Inject the function definition then call it — no content-script or manifest change needed.
+
+  let evalOptions = {
     expression: detectBoxesSource + `\ndetectBoxes({ draw: ${draw} })`,
     returnByValue: true,
     awaitPromise: false,
-  });
-  // `el` is stripped inside detectBoxes before returning, so items are plain
-  // JSON-serialisable objects — no further mapping needed.
+  };
+
+  if (frameId) {
+    // Target a specific iframe: create an isolated world in that frame to get a contextId
+    const { executionContextId } = await chrome.debugger.sendCommand(
+      target, 'Page.createIsolatedWorld', { frameId, worldName: 'tiny-mcp-detect' }
+    );
+    evalOptions.contextId = executionContextId;
+  }
+
+  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', evalOptions);
   const items = result?.value ?? [];
   return { items };
 }

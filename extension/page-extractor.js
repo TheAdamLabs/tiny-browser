@@ -208,6 +208,9 @@ function detectBoxes({ draw = false } = {}) {
     // Skip elements already captured as interactive controls (e.g. <li role="menuitem">)
     const role = el.getAttribute('role');
     if (controlElSet.has(el) && role && interactiveRoles.has(role)) return false;
+    // Skip elements inside page chrome (header, nav, footer) — those are navigation
+    // UI, not content cards. detect_boxes already captures their controls via Pass 1.
+    if (el.closest('header, nav, footer, [role="navigation"], [role="banner"]')) return false;
     return cardScore(el) >= 3;
   });
 
