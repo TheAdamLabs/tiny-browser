@@ -138,10 +138,10 @@ const COMMANDS = [
   },
   {
     name: 'new_tab',
-    params: '[{"url":"https://..."}]',
-    returns: '{"index":N,"tabId":N,"url":"...","boxes":[...],"screenshot":"..."}',
-    desc: 'Open a new tab. Save tabId — use it for all targeted commands. Response includes auto boxes[] and screenshot.',
-    auto_screenshot: true,
+    params: '[{"url":"https://...","active":bool}]',
+    returns: '{"index":N,"tabId":N,"url":"..."}',
+    desc: 'Open a new tab and return its tabId. Save tabId — use it for all targeted commands (detect_boxes, click, etc.). active:false opens the tab in the background without stealing focus, safe for batch tab opening. No auto-screenshot or detect_boxes — call those explicitly with tabId after opening.',
+    auto_screenshot: false,
   },
   {
     name: 'switch_tab',
@@ -190,6 +190,13 @@ const COMMANDS = [
     params: '[{"since":unixMs,"until":unixMs,"clear":bool,"include_extensions":bool,"tabId":N}]',
     returns: '{"requests":[{"method":"...","url":"...","status":N,"type":"XHR","size":N,"duration":N,"ts":N}]}',
     desc: 'Return buffered network requests. chrome-extension:// requests are filtered out by default (set include_extensions:true to include them). Use since/until (Unix ms) to filter to a time window. clear resets the buffer.',
+    auto_screenshot: false,
+  },
+  {
+    name: 'reload_extension',
+    params: '',
+    returns: '{"ok":true}',
+    desc: 'Reload the Chrome extension (equivalent to clicking the reload button at chrome://extensions). Useful after editing background.js or page-extractor.js to apply changes without leaving Cursor. The WebSocket reconnects automatically within ~3 seconds.',
     auto_screenshot: false,
   },
   {

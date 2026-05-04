@@ -247,6 +247,7 @@ async function dispatch(msg) {
       case 'set_file_input': return await cmdSetFileInput(msg.params);
       case 'detect_boxes':   return await cmdDetectBoxes(msg.params);
       case 'list_frames':    return await cmdListFrames(msg.params);
+      case 'reload_extension': chrome.runtime.reload(); return { ok: true };
       default:               return { error: `unknown command: ${msg.command}` };
     }
   } catch (err) {
@@ -358,6 +359,11 @@ async function humanTypeKey(target, char) {
 
 async function cmdScreenshot(params = {}) {
   const tab = await resolveTab(params);
+  // Page.captureScreenshot blocks while a JS dialog (alert/confirm/prompt) is open
+  // because Chrome suspends page rendering. Throw early so the server's best-effort
+  // AUTO_SCREENSHOT catch swallows the error rather than hanging for 20+ seconds.
+  // The caller should dismiss the dialog first, then take a screenshot.
+  if (pendingDialogs.has(tab.id)) throw new Error('JS dialog open — screenshot skipped');
   const target = await ensureDebugger(tab.id);
   // Configurable timeout: {"timeout_ms": 30000} — default 20s (screenshots on
   // content-heavy or freshly-loaded background tabs can be slow).
@@ -691,9 +697,9 @@ async function cmdListTabs() {
   return tabs.map(t => ({ index: t.index, tabId: t.id, url: t.url, title: t.title, active: t.active }));
 }
 
-async function cmdNewTab({ url, timeout = 15000 } = {}) {
+async function cmdNewTab({ url, active = true, timeout = 15000 } = {}) {
   const resolved = url ?? 'about:blank';
-  const tab = await chrome.tabs.create({ url: resolved, active: true });
+  const tab = await chrome.tabs.create({ url: resolved, active });
   // Poll for load completion the same way cmdNavigate does (50ms initial sleep,
   // 150ms poll interval — matches the reduced overhead in cmdNavigate).
   if (resolved !== 'about:blank') {
@@ -1047,6 +1053,12 @@ async function cmdSetFileInput({ selector, files, tabId } = {}) {
 async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
   if (!detectBoxesSource) throw new Error('page-extractor.js not loaded yet — retry in a moment');
   const tab = await resolveTab({ tabId });
+  // JS dialogs (alert/confirm/prompt) suspend the browser's JS engine. Any
+  // Runtime.evaluate call while a dialog is open will block indefinitely,
+  // hanging the extension and starving all subsequent commands. Return early
+  // so auto-detect triggered by click/hover on alert-firing elements is safe.
+  // The caller should use get_dialog + dismiss_dialog to handle the dialog first.
+  if (pendingDialogs.has(tab.id)) return { items: [] };
   const target = await ensureDebugger(tab.id);
 
   // Only inject the full source when detectBoxes isn't already defined in the
@@ -1054,10 +1066,16 @@ async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
   // function, avoiding a ~10KB parse + compile on every auto-detect.
   // A version sentinel (__tinyDetectV) ensures stale code from a previous
   // extension version is replaced after an extension update.
+  //
+  // The source is wrapped in an IIFE so that `function detectBoxes(...)` is a
+  // proper function declaration (hoisted inside the IIFE body), not a named
+  // function expression where V8 keeps the name scoped to the function body
+  // only — which would make `window.detectBoxes = detectBoxes` always throw a
+  // ReferenceError and silently return [].
   const sentinel = JSON.stringify(detectBoxesSource.length);
   let evalOptions = {
     expression: `(window.__tinyDetectV !== ${sentinel}
-      ? (${detectBoxesSource}\nwindow.detectBoxes = detectBoxes, window.__tinyDetectV = ${sentinel})
+      ? (window.detectBoxes = (() => { ${detectBoxesSource}; return detectBoxes; })(), window.__tinyDetectV = ${sentinel})
       : null, window.detectBoxes({ draw: ${draw} }))`,
     returnByValue: true,
     awaitPromise: false,

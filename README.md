@@ -79,6 +79,16 @@ The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
+### Fixes and new commands (v0.8)
+
+| Change | What it does |
+|---|---|
+| `new_tab` — no longer auto-screenshots/detects | Opening many tabs in batch no longer crashes Chrome. `new_tab` returns `{tabId,index,url}` immediately; call `detect_boxes '{"tabId":N}'` explicitly when ready. |
+| `new_tab` — `active` param | `active:false` opens a tab in the background without stealing focus — safe for batch workflows. |
+| `reload_extension` (new) | Reload the Chrome extension from the CLI: `tiny-browser reload_extension`. No more trips to `chrome://extensions` after editing `background.js`. Reconnects in ~3 s. |
+| JS dialog guard | `click` on alert/confirm/prompt-triggering elements now returns fast (<1 s). The server skips auto-screenshot and auto-detect when a dialog is open (both `Page.captureScreenshot` and `Runtime.evaluate` block while a dialog is showing). Use `get_dialog` + `dismiss_dialog` after the click as before. |
+| `detect_boxes` injection fix | `detect_boxes` returned empty `[]` on every call due to a V8 scoping bug: `function detectBoxes(){}` inside a parenthesised expression is a named function expression whose name is not visible outside, so `window.detectBoxes = detectBoxes` always threw a silent ReferenceError. Fixed by wrapping injection in an IIFE. |
+
 ### New commands / improvements (v0.7)
 
 | Change | What it does |
@@ -163,7 +173,8 @@ After changing `bin/server.mjs` or `bin/tiny-browser.mjs`:
 tiny-browser   # restarts automatically (kills previous process on 7331)
 ```
 
-After changing `extension/background.js`:
-```
-chrome://extensions → Tiny Browser → reload icon
+After changing `extension/background.js` or `extension/page-extractor.js`:
+```bash
+tiny-browser reload_extension   # reloads the extension, reconnects in ~3 s
+# or manually: chrome://extensions → Tiny Browser → reload icon
 ```

@@ -183,8 +183,12 @@ tiny-browser drag '{"fromX":200,"fromY":300,"toX":600,"toY":300,"html5":true}'
 
 **Handle a JS alert / confirm / prompt**
 ```bash
-# If a page fires window.alert/confirm/prompt, the tab freezes for other commands.
-# Check for an open dialog first:
+# click on an alert-triggering button returns fast — screenshot/detect are
+# automatically skipped while the dialog is open, so click never hangs.
+tiny-browser click '{"x":N,"y":N}'
+# → {ok:true, boxes:[]}   ← boxes[] is empty because dialog was open
+
+# Read the open dialog:
 tiny-browser get_dialog
 # → {"type":"alert","message":"Are you sure?"} or null
 
@@ -194,7 +198,15 @@ tiny-browser dismiss_dialog '{"accept":true}'
 tiny-browser dismiss_dialog '{"accept":false}'
 # Fill in a prompt() and accept:
 tiny-browser dismiss_dialog '{"accept":true,"promptText":"my answer"}'
-# After dismissal all commands work normally again
+# After dismissal, next click/detect_boxes on the tab works normally
+```
+
+**Reload the Chrome extension without leaving Cursor**
+```bash
+# After editing background.js or page-extractor.js, apply changes in one command:
+tiny-browser reload_extension
+# Returns {ok:true} immediately. The extension reloads and reconnects within ~3s.
+# Verify reconnection: curl -s http://127.0.0.1:7331
 ```
 
 **Set a native file input without an OS picker**
@@ -260,6 +272,31 @@ tiny-browser click '{"x":N,"y":N}'
 tiny-browser get_console "{\"since\":$TS}"
 ```
 
+## Opening multiple tabs safely
+
+`new_tab` returns `{tabId, index, url}` immediately — **no auto-screenshot or detect_boxes**. This makes batch tab opening fast and safe (Chrome won't crash from parallel screenshot + detection overhead).
+
+```python
+# Open 10+ tabs without crashing Chrome — use active:false to keep them background
+import subprocess, json
+
+pages = [("home","http://example.com/"), ("about","http://example.com/about")]
+tab_ids = {}
+for name, url in pages:
+    r = subprocess.run(["tiny-browser","new_tab",json.dumps({"url":url,"active":False})],
+                       capture_output=True, text=True)
+    tab_ids[name] = json.loads(r.stdout)["tabId"]
+
+# Now run detect_boxes on each with their tabId
+for name, tid in tab_ids.items():
+    r = subprocess.run(["tiny-browser","detect_boxes",json.dumps({"tabId":tid,"draw":True})],
+                       capture_output=True, text=True)
+    items = json.loads(r.stdout).get("items",[])
+    print(f"{name}: {len(items)} items")
+```
+
+`active:false` opens the tab without stealing focus. After opening, call `detect_boxes '{"tabId":N}'` when you need to inspect a tab.
+
 ## Parallel execution
 
 Every command accepts optional `tabId` (from `new_tab` or `list_tabs`).
@@ -280,7 +317,7 @@ tiny-browser query "{\"tabId\":$TB,\"expression\":\"document.title\"}" &
 wait
 ```
 
-`new_tab` and `navigate` both wait for the page to load before returning — no extra `wait` needed.
+`new_tab` returns as soon as the page load completes. `navigate` also waits internally.  
 Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and never overwrite each other.
 
 ## Gotchas
@@ -316,7 +353,9 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **`drag` auto-activates background tabs**: like `click`, `drag` now auto-activates the target tab when `tabId` is provided — no manual `switch_tab` needed before dragging to background tabs.
 - **`drag` steps for SPAs**: increase `steps` (default 10) to 20–30 for apps that use `pointermove` to track position (Linear, Trello, Figma). Too few steps can cause the drag to "snap" without triggering the drop target.
 - **`drag html5` vs default**: use `html5:true` when the site relies on the HTML5 Drag and Drop API (`dragstart`/`dragover`/`drop` events). Use the default (mouse events) for canvas, range sliders, or pointer-event-based UIs. Both modes accept the same source/target coordinates from the screenshot grid.
-- **JS alert freezes tab**: when `window.alert/confirm/prompt` fires, ALL subsequent commands on that tab block for 30s then fail. Use `get_dialog` to detect the open dialog, then `dismiss_dialog` to unblock — this works even while V8 is paused. Never send any other command to the tab before dismissing the dialog.
+- **JS alert freezes tab**: when `window.alert/confirm/prompt` fires, `Page.captureScreenshot` and `Runtime.evaluate` both block while the dialog is open. The server automatically skips auto-screenshot and auto-detect when a dialog is open, so `click` on alert-firing elements returns fast with empty `boxes[]`. Call `get_dialog` to read the dialog, then `dismiss_dialog` to unblock — this works even while V8 is paused.
+- **CDP right-click does not fire `contextmenu` DOM event**: dispatching `mousePressed`+`mouseReleased` with `button:"right"` via CDP does not trigger the browser's native `contextmenu` event (and therefore does not run page-level `contextmenu` JS handlers). To simulate a right-click that runs JS handlers, inject a `contextmenu` event via `query`: `document.querySelector('selector').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2}))` — then use `get_dialog`/`dismiss_dialog` if a dialog fires.
+- **`new_tab` no longer auto-screenshots or detects**: `new_tab` returns `{tabId,index,url}` only. Call `detect_boxes '{"tabId":N}'` explicitly after opening. This prevents Chrome from crashing when opening many tabs in batch. Use `active:false` to open background tabs without stealing focus.
 - **`set_file_input` requires absolute paths**: paths must be absolute on the machine running Chrome (not the agent machine if different). Selector defaults to `input[type="file"]`; pass `selector` when a page has multiple file inputs.
 - **scroll returns scrollY/scrollX**: the `scroll` response now includes `scrollY` and `scrollX` — use these to offset click coordinates for elements that are now in view after scrolling. This avoids a separate `query` round-trip to get scroll position.
 - **background tab click auto-activates**: when you pass an explicit `tabId` to `click`, the extension now automatically activates that tab before sending the mouse event so JS synthetic events fire correctly. You don't need a manual `switch_tab` first.

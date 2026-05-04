@@ -125,12 +125,16 @@ const ROUTES = new Set([
   'hover',
   'get_dialog', 'dismiss_dialog', 'set_file_input',
   'detect_boxes',
+  'reload_extension',
 ]);
 
 // Commands that change visible page state — automatically include a screenshot
 // in their response so the AI agent can read it without a separate round-trip.
+// new_tab is intentionally excluded: opening multiple tabs in batch would trigger
+// N screenshots + N detect_boxes calls, overwhelming Chrome and crashing the
+// service worker. Call detect_boxes with tabId explicitly after opening tabs.
 const AUTO_SCREENSHOT = new Set([
-  'click', 'drag', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
+  'click', 'drag', 'type', 'scroll', 'navigate', 'key_press',
   'select_option', 'wait', 'hover',
   'set_file_input',  // file label updates immediately; confirm with auto-screenshot
 ]);
@@ -139,7 +143,7 @@ const AUTO_SCREENSHOT = new Set([
 // response so the agent can identify new targets without a screenshot round-trip.
 // detect_boxes runs after AUTO_SCREENSHOT (if present) using the same settleMs.
 const AUTO_DETECT = new Set([
-  'click', 'drag', 'type', 'scroll', 'navigate', 'new_tab', 'key_press',
+  'click', 'drag', 'type', 'scroll', 'navigate', 'key_press',
   'select_option', 'wait', 'hover', 'set_file_input',
 ]);
 
@@ -154,7 +158,6 @@ const AUTO_DETECT = new Set([
 //   hover              — CSS :hover transitions typically complete within 200ms.
 const SETTLE_MS = {
   navigate:       150,
-  new_tab:        150,
   wait:            50,
   click:          200,
   drag:           200,  // allow drop targets to settle after mouseReleased
@@ -207,6 +210,14 @@ const server = http.createServer(async (req, res) => {
       return reply(200, { file: filePath });
     }
 
+    if (route === 'reload_extension') {
+      // Fire-and-forget: the service worker calls chrome.runtime.reload() and
+      // dies immediately, so it can never send a response. Swallow the error and
+      // return ok:true — the offscreen doc will reconnect within ~3 s.
+      sendToExtension('reload_extension', {}).catch(() => {});
+      return reply(200, { ok: true });
+    }
+
     if (ROUTES.has(route)) {
       const result = await sendToExtension(route, params);
       const needsSettle = AUTO_SCREENSHOT.has(route) || AUTO_DETECT.has(route);
@@ -214,27 +225,36 @@ const server = http.createServer(async (req, res) => {
         const settleMs = SETTLE_MS[route] ?? 250;
         await new Promise(r => setTimeout(r, settleMs));
       }
-      if (AUTO_SCREENSHOT.has(route)) {
+      if (AUTO_SCREENSHOT.has(route) || AUTO_DETECT.has(route)) {
+        // Guard: skip screenshot + detect when a JS dialog is open.
+        // Page.captureScreenshot and Runtime.evaluate both block while an
+        // alert/confirm/prompt is showing. get_dialog is a fast Map lookup
+        // in the extension and reliably reflects dialog state after the settle.
+        let dialogOpen = false;
         try {
-          // Per-command settle delay before capturing the auto-screenshot.
-          // navigate/new_tab already waited for tab.status=complete internally;
-          // only a short final-paint settle is needed.  Interactive commands get
-          // tuned values that cover their typical DOM side-effects without
-          // over-waiting.
-          const { base64, dpr } = await sendToExtension('screenshot', params); // forwards tabId
-          const png = await makeScreenshot(base64, dpr);
-          const filePath = params.tabId != null
-            ? path.join(os.tmpdir(), `tiny-browser-screenshot-${params.tabId}.png`)
-            : SCREENSHOT_PATH;
-          fs.writeFileSync(filePath, png);
-          result.screenshot = filePath;
-        } catch { /* best-effort — never fail the original command */ }
-      }
-      if (AUTO_DETECT.has(route)) {
-        try {
-          const boxes = await sendToExtension('detect_boxes', { tabId: params.tabId });
-          result.boxes = boxes.items;
-        } catch { /* best-effort — never fail the original command */ }
+          const dlg = await sendToExtension('get_dialog', { tabId: params.tabId });
+          dialogOpen = dlg !== null;
+        } catch { /* if get_dialog fails, assume no dialog */ }
+
+        if (!dialogOpen) {
+          if (AUTO_SCREENSHOT.has(route)) {
+            try {
+              const { base64, dpr } = await sendToExtension('screenshot', params); // forwards tabId
+              const png = await makeScreenshot(base64, dpr);
+              const filePath = params.tabId != null
+                ? path.join(os.tmpdir(), `tiny-browser-screenshot-${params.tabId}.png`)
+                : SCREENSHOT_PATH;
+              fs.writeFileSync(filePath, png);
+              result.screenshot = filePath;
+            } catch { /* best-effort — never fail the original command */ }
+          }
+          if (AUTO_DETECT.has(route)) {
+            try {
+              const boxes = await sendToExtension('detect_boxes', { tabId: params.tabId });
+              result.boxes = boxes.items;
+            } catch { /* best-effort — never fail the original command */ }
+          }
+        }
       }
       return reply(200, result);
     }

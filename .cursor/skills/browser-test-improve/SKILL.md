@@ -14,11 +14,30 @@ Each iteration is fully autonomous — do not stop between phases to ask for dir
 
 ## Phase 1 — Sweep
 
-Open all relevant pages as background tabs in one Python batch. Run `detect_boxes` with `draw:true` on every tab in the same batch — this paints the bounding-box overlays directly on each page so you can switch to any tab and see exactly what was detected. Print a summary table:
+Open all relevant pages as background tabs in one Python batch using `new_tab` with `active:false` — this skips auto-screenshot/detect so Chrome doesn't crash when opening many tabs. Then run `detect_boxes` with `draw:true` on every tab in a second batch — this paints the bounding-box overlays directly on each page. Print a summary table:
 
 ```
 page_name   (N items)
   C0  control  button[inputType:submit]  cx=88  cy=113  'Add Element'
+```
+
+```python
+import subprocess, json, time
+
+pages = [("home","https://example.com/"), ("about","https://example.com/about")]
+tab_ids = {}
+for name, url in pages:
+    r = subprocess.run(["tiny-browser","new_tab",json.dumps({"url":url,"active":False})],
+                       capture_output=True, text=True)
+    tab_ids[name] = json.loads(r.stdout).get("tabId")
+    print(f"  {name:20s}  tabId={tab_ids[name]}")
+
+# Then detect on all tabs
+for name, tid in tab_ids.items():
+    r = subprocess.run(["tiny-browser","detect_boxes",json.dumps({"tabId":tid,"draw":True})],
+                       capture_output=True, text=True)
+    items = json.loads(r.stdout).get("items",[])
+    print(f"  {name:20s}  ({len(items)} items){'  ⚠ EMPTY' if not items else ''}")
 ```
 
 Flag: `items==0` on an interactive page • `error` field present • obviously missing controls (confirm with `query`).
@@ -32,7 +51,8 @@ Run targeted tests **in parallel** for all flagged pages and for these challengi
 | Click / checkbox / radio | `click` → `query el.checked` or DOM state |
 | Type into input | `click` + `type` → `query el.value` |
 | Dynamic / AJAX content | trigger → `wait 3s` → `detect_boxes` again |
-| Right-click / context menu | `click '{"button":"right",...}'` in bg with `&` → `get_dialog` / `dismiss_dialog` |
+| Click on alert-triggering element | `click` → returns fast with empty `boxes[]` → `get_dialog` → `dismiss_dialog` |
+| Right-click / context menu (CDP) | CDP right-click does **not** fire the `contextmenu` DOM event — inject it via `query`: `el.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,button:2}))` → `get_dialog` → `dismiss_dialog` |
 | Drag & drop | `drag` (`html5:true` for HTML5 DnD) |
 | File input | `set_file_input` |
 | Modal / overlay close | look for cursor:pointer items in boxes[] or `query` for rect |
@@ -70,7 +90,7 @@ Common root causes:
 7. `npm run lint` — fix all errors
 8. `npm install -g .` — update global binary
 9. `pkill -f "node.*server.mjs"; tiny-browser &` — restart server
-10. Ask user to **reload Chrome extension** at `chrome://extensions` when `background.js` or `page-extractor.js` changed
+10. When `background.js` or `page-extractor.js` changed: `tiny-browser reload_extension '{}'` — wait ~4 s then verify with `tiny-browser list_tabs '{}'`. No manual browser interaction needed.
 
 ## Phase 5 — Retest
 
