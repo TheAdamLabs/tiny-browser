@@ -39,6 +39,13 @@ const COMMANDS = [
     auto_screenshot: false,
   },
   {
+    name: 'page_to_md',
+    params: '[{"char_limit":8000,"tabId":N}]',
+    returns: '{"markdown":"# Title\\n\\nParagraph text…"}',
+    desc: 'Extract the main content of the page as clean Markdown (headings, paragraphs, lists, tables, code blocks). Targets main/article first, falls back to body; strips nav/header/footer/aside. Auto-included in navigate and wait responses — no separate call needed on arrival. Use explicitly to re-fetch after dynamic content loads, or pass char_limit to raise the 8000-char default for long articles. Empty string means no readable content found (SPA shell, login redirect, etc.).',
+    auto_screenshot: false,
+  },
+  {
     name: 'list_frames',
     params: '[{"tabId":N}]',
     returns: '{"frames":[{"frameId":"str","url":"https://...","name":"","depth":0},...]}',
@@ -48,15 +55,15 @@ const COMMANDS = [
   {
     name: 'navigate',
     params: '{"url":"https://example.com"[,"tabId":N]}',
-    returns: '{"ok":true,"boxes":[...],"screenshot":"..."}',
-    desc: 'Navigate to a URL. Response includes auto boxes[] and screenshot.',
+    returns: '{"ok":true,"boxes":[...],"screenshot":"...","markdown":"# Title\\n\\nPage content…"}',
+    desc: 'Navigate to a URL. Response includes auto boxes[], screenshot, and markdown — the main page content as clean Markdown (headings, paragraphs, lists, tables). Read markdown to understand what the page says without a separate call.',
     auto_screenshot: true,
   },
   {
     name: 'wait',
     params: '[{"timeout":10000,"tabId":N}]',
-    returns: '{"ready":true,"boxes":[...],"screenshot":"..."}',
-    desc: 'Block until the tab finishes loading. Use after navigate or form submit. Follow with detect_boxes or screenshot to confirm the page state.',
+    returns: '{"ready":true,"boxes":[...],"screenshot":"...","markdown":"# Title\\n\\nPage content…"}',
+    desc: 'Block until the tab finishes loading. Use after navigate or form submit. Response includes auto boxes[], screenshot, and markdown (main page content). markdown is empty string if no semantic content container is found (SPA shell, login redirect, etc.).',
     auto_screenshot: true,
   },
   {

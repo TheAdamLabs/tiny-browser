@@ -125,6 +125,7 @@ const ROUTES = new Set([
   'hover',
   'get_dialog', 'dismiss_dialog', 'set_file_input',
   'detect_boxes',
+  'page_to_md',
   'reload_extension',
 ]);
 
@@ -146,6 +147,13 @@ const AUTO_DETECT = new Set([
   'click', 'drag', 'type', 'scroll', 'navigate', 'key_press',
   'select_option', 'wait', 'hover', 'set_file_input',
 ]);
+
+// Commands after which full page Markdown is auto-included. Restricted to
+// navigate/wait — these are the only moments where the page content has
+// materially changed and the agent needs context about what the page says.
+// Mid-interaction commands (click/type/scroll/etc.) deliberately omit markdown
+// to avoid re-sending full page content on every action.
+const AUTO_CONTENT = new Set(['navigate', 'wait']);
 
 // Per-command settle time (ms) between command completion and auto-screenshot.
 // Tuned to each command's typical DOM side-effect latency:
@@ -252,6 +260,15 @@ const server = http.createServer(async (req, res) => {
             try {
               const boxes = await sendToExtension('detect_boxes', { tabId: params.tabId });
               result.boxes = boxes.items;
+            } catch { /* best-effort — never fail the original command */ }
+          }
+          if (AUTO_CONTENT.has(route)) {
+            try {
+              const { markdown } = await sendToExtension('page_to_md', {
+                tabId: params.tabId,
+                char_limit: params.char_limit,
+              });
+              if (markdown) result.markdown = markdown;
             } catch { /* best-effort — never fail the original command */ }
           }
         }

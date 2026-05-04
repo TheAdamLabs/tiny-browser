@@ -79,6 +79,17 @@ The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
+### New features (v0.9)
+
+| Change | What it does |
+|---|---|
+| `page_to_md` (new command) | Extract the main page content as clean Markdown — headings, paragraphs, lists, tables, code blocks. Targets `main`/`article` first, falls back to `body`; strips `nav`/`header`/`footer`/`aside`. |
+| `navigate` / `wait` — auto `markdown` field | `navigate` and `wait` responses now include a `markdown` field with page content. Read it immediately to understand what the page says — no separate call needed. |
+| `detect_boxes` — table sort headers | `<thead th>` elements with visible text are now detected as controls (tag: `"th"`) even without `cursor:pointer` or ARIA roles — covers jQuery tablesorter, TanStack Table, and similar. |
+| `page_to_md` — whitespace clean | Whitespace-only text nodes (indentation, HTML formatting) are stripped. Output is clean Markdown with no `\n \n` noise. |
+| `page_to_md` — skip interactive elements | `BUTTON`, `INPUT`, `SELECT`, `TEXTAREA`, and their option elements are excluded — they're content for `detect_boxes`, not for `page_to_md`. |
+| `page_to_md` — GFM tables | Table cells normalize whitespace (e.g. `edit delete` instead of `edit\n          delete`). |
+
 ### Fixes and new commands (v0.8)
 
 | Change | What it does |

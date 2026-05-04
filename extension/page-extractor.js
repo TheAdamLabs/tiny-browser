@@ -291,6 +291,24 @@ function detectBoxes({ draw = false } = {}) {
       return dx <= 4 && dy <= 4;
     }));
 
+  // ── PASS 5: TABLE SORT HEADERS ───────────────────────────────────────────────
+  // <thead> <th> elements are column headers and are frequently sortable.
+  // Many table-sort libraries (jQuery tablesorter, TanStack Table, etc.) don't
+  // set cursor:pointer, so they escape Pass 1 (no href/role) and Pass 4 (no pointer).
+  // Detecting them lets agents click to sort without needing a screenshot.
+  const allControlRects = [...ctrlRects, ...clickableNonStd.map(c => c.rect)];
+  const sortHeaders = [...document.querySelectorAll('thead th')].flatMap(el => {
+    if (!visible(el)) return [];
+    const r = getRect(el);
+    if (!inViewport(r)) return [];
+    if (r.width < 8 || r.height < 8) return [];
+    const t = textOf(el);
+    if (t.length < 2) return [];
+    // Skip if already covered by a Pass 1/4 control (e.g. th contains an <a>)
+    if (allControlRects.some(cr => overlaps(cr, r) > 0.5)) return [];
+    return [{ el, tag: 'th', kind: 'control', text: t, rect: r, selector: pathOf(el) }];
+  });
+
   // ── MERGE, INDEX, ADD id ──────────────────────────────────────────────────────
   // id = visualization label: C0, C1… for controls; K0, K1… for cards; I0, I1… for images
   const kindPrefix = { control: 'C', card: 'K', image: 'I' };
@@ -299,7 +317,7 @@ function detectBoxes({ draw = false } = {}) {
   // Strip `el` DOM reference before building the return value — keeping it in the
   // serialized payload causes CDP "Object reference chain is too long" on pages
   // with special input types (e.g. file inputs whose FileList chain is unserializable).
-  const all = [...controls, ...clickableNonStd, ...cards, ...images].map((item, i) => {
+  const all = [...controls, ...clickableNonStd, ...sortHeaders, ...cards, ...images].map((item, i) => {
     const prefix = kindPrefix[item.kind] || 'X';
     const vizId = prefix + kindCounters[item.kind]++;
     // eslint-disable-next-line no-unused-vars
@@ -327,4 +345,163 @@ function detectBoxes({ draw = false } = {}) {
   }
 
   return all;
+}
+
+// eslint-disable-next-line no-unused-vars
+function pageToMarkdown({ char_limit = 8000 } = {}) {
+  // Structural chrome/script elements to skip entirely
+  const BLOCK_SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'NAV', 'HEADER', 'FOOTER', 'ASIDE']);
+  // Interactive/form elements that are NOT content — already covered by detect_boxes.
+  // Rendering their text creates noise (option lists, button labels, dismiss icons, etc.)
+  const FORM_SKIP = new Set(['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'OPTION', 'OPTGROUP']);
+
+  function isHidden(el) {
+    try {
+      const s = getComputedStyle(el);
+      return s.display === 'none' || s.visibility === 'hidden';
+    } catch { return false; }
+  }
+
+  function childrenMd(node, depth) {
+    return Array.from(node.childNodes).map(n => nodeToMd(n, depth)).join('');
+  }
+
+  function tableToMd(table) {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    if (!rows.length) return '';
+    const cells = rows.map(r =>
+      Array.from(r.querySelectorAll('th,td')).map(c => c.textContent.trim().replace(/\s+/g, ' ').replace(/\|/g, '\\|'))
+    );
+    if (!cells[0]?.length) return '';
+    const header = cells[0];
+    const sep = header.map(() => '---');
+    const body = cells.slice(1);
+    const fmt = row => '| ' + row.join(' | ') + ' |';
+    return '\n' + [fmt(header), fmt(sep), ...body.map(fmt)].join('\n') + '\n\n';
+  }
+
+  function nodeToMd(node, depth = 0) {
+    // Text node: skip whitespace-only (indentation, newlines between block elements)
+    if (node.nodeType === 3) {
+      const t = node.textContent;
+      if (!t.trim()) return '';
+      return t.replace(/\s+/g, ' ');
+    }
+    if (node.nodeType !== 1) return '';
+
+    const tag = node.tagName;
+    if (BLOCK_SKIP.has(tag)) return '';
+    if (FORM_SKIP.has(tag)) return '';
+    if (node.closest('nav,header,footer,aside,[role="navigation"],[role="banner"],[role="contentinfo"]')) return '';
+    if (isHidden(node)) return '';
+
+    switch (tag) {
+      case 'H1': return `\n# ${node.textContent.trim()}\n\n`;
+      case 'H2': return `\n## ${node.textContent.trim()}\n\n`;
+      case 'H3': return `\n### ${node.textContent.trim()}\n\n`;
+      case 'H4': return `\n#### ${node.textContent.trim()}\n\n`;
+      case 'H5': return `\n##### ${node.textContent.trim()}\n\n`;
+      case 'H6': return `\n###### ${node.textContent.trim()}\n\n`;
+
+      case 'P': {
+        const text = childrenMd(node, depth).trim();
+        return text ? `\n${text}\n\n` : '';
+      }
+
+      case 'BR': return '\n';
+      case 'HR': return '\n---\n\n';
+
+      case 'STRONG':
+      case 'B': {
+        const inner = childrenMd(node, depth).trim();
+        return inner ? `**${inner}**` : '';
+      }
+
+      case 'EM':
+      case 'I': {
+        const inner = childrenMd(node, depth).trim();
+        return inner ? `*${inner}*` : '';
+      }
+
+      case 'CODE': {
+        if (node.closest('pre')) return node.textContent;
+        return `\`${node.textContent}\``;
+      }
+
+      case 'PRE': {
+        const codeEl = node.querySelector('code');
+        const lang = codeEl?.className?.match(/language-(\w+)/)?.[1] ?? '';
+        const content = (codeEl ?? node).textContent;
+        return `\n\`\`\`${lang}\n${content}\n\`\`\`\n\n`;
+      }
+
+      case 'BLOCKQUOTE': {
+        const inner = childrenMd(node, depth).trim().split('\n').map(l => `> ${l}`).join('\n');
+        return `\n${inner}\n\n`;
+      }
+
+      case 'A': {
+        const href = node.getAttribute('href');
+        const text = node.textContent.trim();
+        if (!href || !text) return text || '';
+        if (href.startsWith('javascript:') || href === '#') return text;
+        return `[${text}](${href})`;
+      }
+
+      case 'IMG': {
+        const alt = node.getAttribute('alt')?.trim() ?? '';
+        const src = node.getAttribute('src') ?? '';
+        return alt ? `![${alt}](${src})` : '';
+      }
+
+      case 'UL': {
+        const items = Array.from(node.children)
+          .filter(c => c.tagName === 'LI')
+          .map(li => {
+            const content = childrenMd(li, depth + 1).trim().replace(/\n\n+/g, '\n');
+            const indent = '  '.repeat(depth);
+            return `${indent}- ${content}`;
+          });
+        return items.length ? '\n' + items.join('\n') + '\n\n' : '';
+      }
+
+      case 'OL': {
+        const items = Array.from(node.children)
+          .filter(c => c.tagName === 'LI')
+          .map((li, i) => {
+            const content = childrenMd(li, depth + 1).trim().replace(/\n\n+/g, '\n');
+            const indent = '  '.repeat(depth);
+            return `${indent}${i + 1}. ${content}`;
+          });
+        return items.length ? '\n' + items.join('\n') + '\n\n' : '';
+      }
+
+      case 'LI': return childrenMd(node, depth);
+
+      case 'TABLE': return tableToMd(node);
+      // TR/TH/TD are handled inside tableToMd; fallthrough to recurse if standalone
+      case 'THEAD':
+      case 'TBODY':
+      case 'TFOOT':
+      case 'TR':
+      case 'TH':
+      case 'TD':
+        return childrenMd(node, depth);
+
+      default:
+        return childrenMd(node, depth);
+    }
+  }
+
+  try {
+    const root = document.querySelector('main,[role="main"],article') ?? document.body;
+    const raw = nodeToMd(root)
+      .replace(/[ \t]+\n/g, '\n')   // trailing horizontal whitespace on any line
+      .replace(/\n[ \t]+\n/g, '\n\n') // lines containing only spaces/tabs → blank line
+      .replace(/\n{3,}/g, '\n\n')    // collapse 3+ newlines to double newline
+      .trim();
+    return raw.length > char_limit ? raw.slice(0, char_limit) + '\n\u2026(truncated)' : raw;
+  } catch {
+    return '';
+  }
 }

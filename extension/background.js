@@ -246,6 +246,7 @@ async function dispatch(msg) {
       case 'dismiss_dialog': return await cmdDismissDialog(msg.params);
       case 'set_file_input': return await cmdSetFileInput(msg.params);
       case 'detect_boxes':   return await cmdDetectBoxes(msg.params);
+      case 'page_to_md':     return await cmdPageToMd(msg.params);
       case 'list_frames':    return await cmdListFrames(msg.params);
       case 'reload_extension': chrome.runtime.reload(); return { ok: true };
       default:               return { error: `unknown command: ${msg.command}` };
@@ -1092,6 +1093,38 @@ async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
   const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', evalOptions);
   const items = result?.value ?? [];
   return { items };
+}
+
+// ---------------------------------------------------------------------------
+// page_to_md command handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the main content of the page as clean Markdown.
+ *
+ * Targets main/article first, falls back to body; strips nav/header/footer/aside.
+ * char_limit caps output (default 8000 chars) to keep token counts bounded.
+ * Returns { markdown: "" } when a dialog is open or injection fails.
+ */
+async function cmdPageToMd({ tabId, char_limit } = {}) {
+  if (!detectBoxesSource) throw new Error('page-extractor.js not loaded yet — retry in a moment');
+  const tab = await resolveTab({ tabId });
+  // Same dialog guard as cmdDetectBoxes — Runtime.evaluate blocks while a dialog is open.
+  if (pendingDialogs.has(tab.id)) return { markdown: '' };
+  const target = await ensureDebugger(tab.id);
+
+  // Use a separate window sentinel (__tinyPagMdV) so this injection is independent
+  // of whether cmdDetectBoxes has already run on this page.
+  const sentinel = JSON.stringify(detectBoxesSource.length);
+  const charLimit = char_limit ?? 8000;
+  const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+    expression: `(window.__tinyPagMdV !== ${sentinel}
+      ? (window.pageToMarkdown = (() => { ${detectBoxesSource}; return pageToMarkdown; })(), window.__tinyPagMdV = ${sentinel})
+      : null, window.pageToMarkdown({ char_limit: ${charLimit} }))`,
+    returnByValue: true,
+    awaitPromise: false,
+  });
+  return { markdown: result?.value ?? '' };
 }
 
 // ---------------------------------------------------------------------------

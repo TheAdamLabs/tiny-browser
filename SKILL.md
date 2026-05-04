@@ -42,12 +42,17 @@ When unsure about params or return format, **run `tiny-browser help COMMAND` fir
 ## Core loop
 
 ```
-detect_boxes  →  read items[]  →  click item.cx, item.cy
-              →  response includes boxes[]  →  read updated items  →  act again
-              →  call screenshot only when visual state matters
+navigate → response includes boxes[], screenshot, markdown
+         → read markdown to understand page content
+         → read boxes[] to find interactive targets
+         → click item.cx, item.cy
+         → response includes updated boxes[]  →  act again
+         → call screenshot only when visual state matters
 ```
 
-`detect_boxes` returns all visible interactive controls (buttons, links, inputs), semantic cards, and images. Every item includes **`cx` and `cy`** — the pre-computed center coordinates to pass directly to `click`. No arithmetic needed.
+`detect_boxes` answers "what can I interact with?" — controls (buttons, links, inputs), semantic cards, and images. Every item includes **`cx` and `cy`** — pre-computed center coordinates to pass directly to `click`. No arithmetic needed.
+
+`navigate` and `wait` responses automatically include **`markdown`** — the main page content (headings, paragraphs, lists, tables) converted to clean Markdown. Read it to understand what the page says without a separate call. `markdown` is empty when no readable content is found (SPA loading shell, login redirect, etc.).
 
 Action commands (`click`, `navigate`, `type`, etc.) automatically include `boxes[]` in their response — read that directly to find the next target without a separate call.
 
@@ -108,13 +113,23 @@ tiny-browser type '{"text":"new value"}'
 tiny-browser type '{"text":"long paragraph or a search query here","fast":true}'
 ```
 
-**Navigate and wait for content to appear**
+**Navigate and read page content on arrival**
 ```bash
 tiny-browser navigate '{"url":"https://example.com/app"}'
-# navigate waits for tab load internally and returns boxes[].
-# SPAs may hydrate later — use wait + detect_boxes to confirm interactive content is loaded.
+# Response includes boxes[], screenshot, and markdown.
+# Read markdown to understand the page — no separate call needed.
+# SPAs may hydrate later — use wait if markdown is empty or boxes[] is sparse.
 tiny-browser wait '{"timeout":8000}'
-# Read boxes[] in the response to verify interactive elements are present
+# wait also returns markdown and boxes[] — check markdown to confirm content loaded
+```
+
+**Re-fetch page content after dynamic load**
+```bash
+# After navigating to a page, markdown is auto-included.
+# For pages that load content after initial render (infinite scroll, AJAX), call explicitly:
+tiny-browser page_to_md
+# Raises the default 8000-char limit for long articles:
+tiny-browser page_to_md '{"char_limit":20000}'
 ```
 
 **Form inside a modal**
@@ -366,3 +381,9 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **`detect_boxes` misses canvas / iframe content**: canvas-rendered UI and cross-origin iframes have no DOM nodes — use `screenshot` to see and target those elements. For **same-origin iframes** (embedded demos, sandboxed apps, payment widgets on the same domain), use `list_frames` to get the iframe's `frameId`, then pass it to `detect_boxes` or `query`: `tiny-browser list_frames '{"tabId":N}'` → pick the child frame → `tiny-browser detect_boxes '{"tabId":N,"frameId":"..."}'`.
 - **`detect_boxes` with `draw:true`**: always pair with a follow-up `screenshot` call — the overlays are painted synchronously but only visible in the screenshot. Overlays are removed on the next `detect_boxes` call.
 - **`read_page` text_limit**: pass `{"text_limit":20000}` for long articles — the default 4000-char cap truncates most real documentation pages
+- **`markdown` in navigate/wait**: auto-included in `navigate` and `wait` responses; omitted from `click`/`type`/`scroll`/etc. to avoid re-sending full page content on every action. Use `page_to_md` explicitly to re-fetch after dynamic content loads or to raise the 8000-char default.
+- **`markdown` empty string**: `markdown:""` means no readable content was found — likely a login redirect, SPA loading shell, or a page whose main content is behind a JS gate. Call `wait` then retry `page_to_md`, or fall back to `read_page` for raw text.
+- **`page_to_md` targets `main`/`article` first**: on pages without semantic containers, falls back to `document.body`. Nav, header, footer, and aside blocks are always stripped. If the extracted content looks wrong (e.g. nav links instead of article text), the page may lack a `<main>` — inspect with `query '{"expression":"document.querySelector(\"main\")?.tagName"}'`.
+- **`page_to_md` skips interactive elements**: `BUTTON`, `INPUT`, `SELECT`, `TEXTAREA`, and their option elements are excluded from `page_to_md` output. They are already captured by `detect_boxes`. Form labels and surrounding text are still included.
+- **Table sort headers now in `detect_boxes`**: `<thead th>` elements with non-empty text are detected as controls (tag: `"th"`) even when they lack `cursor:pointer` or ARIA roles. This covers jQuery tablesorter, TanStack Table, and similar libraries. Click them to sort.
+- **`detect_boxes` tables — `kind` for sort headers**: sort header items have `tag:"th"` and `kind:"control"`. Their `text` field shows the column name. Use `cx`/`cy` directly to click and sort.
