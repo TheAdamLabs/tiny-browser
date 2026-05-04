@@ -5,13 +5,6 @@
  * realistic human mouse + keyboard behavior.
  */
 
-const WS_URL = 'ws://localhost:7331';
-const RECONNECT_DELAY_MS = 3000;
-const KEEPALIVE_ALARM = 'tiny-mcp-keepalive';
-
-let ws = null;
-let connected = false;
-
 // ---------------------------------------------------------------------------
 // page-extractor source — loaded once at startup, injected via Runtime.evaluate
 // ---------------------------------------------------------------------------
@@ -186,28 +179,45 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 });
 
 // ---------------------------------------------------------------------------
-// WebSocket keepalive
+// Offscreen document — maintains the persistent WebSocket to the server.
+// Chrome does not terminate offscreen documents between commands the way it
+// does with MV3 service workers, so the connection stays alive indefinitely.
+// The service worker is woken by chrome.runtime.sendMessage on each command
+// and kept alive by the open message-response channel until it replies.
 // ---------------------------------------------------------------------------
 
-chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 / 3 });
-chrome.alarms.onAlarm.addListener((alarm) => {
+const OFFSCREEN_URL = chrome.runtime.getURL('offscreen.html');
+const KEEPALIVE_ALARM = 'tiny-mcp-keepalive';
+
+async function ensureOffscreenDoc() {
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [OFFSCREEN_URL],
+  });
+  if (existing.length > 0) return;
+  await chrome.offscreen.createDocument({
+    url: OFFSCREEN_URL,
+    reasons: ['DOM_SCRAPING'],
+    justification: 'Persistent WebSocket connection to tiny-browser server',
+  });
+}
+
+// Periodic check: recreate the offscreen doc if Chrome ever terminates it.
+chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
-  if (!connected || ws?.readyState !== WebSocket.OPEN) connect();
+  await ensureOffscreenDoc().catch(() => {});
 });
 
-function connect() {
-  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
-  ws = new WebSocket(WS_URL);
-  ws.addEventListener('open', () => { connected = true; console.log('[tiny-mcp] connected'); });
-  ws.addEventListener('message', async (event) => {
-    let msg;
-    try { msg = JSON.parse(event.data); } catch { return; }
-    const result = await dispatch(msg);
-    ws.send(JSON.stringify({ id: msg.id, result }));
-  });
-  ws.addEventListener('close', () => { connected = false; setTimeout(connect, RECONNECT_DELAY_MS); });
-  ws.addEventListener('error', () => {});
-}
+// Command router — called by the offscreen doc for each incoming WS message.
+// Returning true keeps the message channel open while dispatch() runs async.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg?._tiny) return false;
+  dispatch(msg)
+    .then(sendResponse)
+    .catch(err => sendResponse({ error: err?.message ?? String(err) }));
+  return true;
+});
 
 async function dispatch(msg) {
   try {
@@ -1039,8 +1049,16 @@ async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
   const tab = await resolveTab({ tabId });
   const target = await ensureDebugger(tab.id);
 
+  // Only inject the full source when detectBoxes isn't already defined in the
+  // page's JS context. Subsequent calls on the same page reuse the cached
+  // function, avoiding a ~10KB parse + compile on every auto-detect.
+  // A version sentinel (__tinyDetectV) ensures stale code from a previous
+  // extension version is replaced after an extension update.
+  const sentinel = JSON.stringify(detectBoxesSource.length);
   let evalOptions = {
-    expression: detectBoxesSource + `\ndetectBoxes({ draw: ${draw} })`,
+    expression: `(window.__tinyDetectV !== ${sentinel}
+      ? (${detectBoxesSource}\nwindow.detectBoxes = detectBoxes, window.__tinyDetectV = ${sentinel})
+      : null, window.detectBoxes({ draw: ${draw} }))`,
     returnByValue: true,
     awaitPromise: false,
   };
@@ -1062,4 +1080,4 @@ async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
 // Start
 // ---------------------------------------------------------------------------
 
-connect();
+ensureOffscreenDoc().catch(err => console.error('[tiny-mcp] offscreen init failed:', err));

@@ -3,14 +3,14 @@
   "name": "Tiny Browser",
   "version": "0.2.0",
   "description": "Browser actuator for Cursor AI — screenshot, click, type, scroll, navigate",
-  "permissions": ["activeTab", "tabs", "alarms", "debugger"],
+  "permissions": ["activeTab", "tabs", "alarms", "debugger", "offscreen"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:7331 http://127.0.0.1:7331"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:7331 ws://127.0.0.1:7331 http://127.0.0.1:7331"
   },
   "action": {
     "default_title": "Tiny Browser MCP",
