@@ -42,22 +42,16 @@ When unsure about params or return format, **run `tiny-browser help COMMAND` fir
 ## Core loop
 
 ```
-detect_boxes  →  read items[]  →  compute cx/cy from rect  →  click cx,cy
+detect_boxes  →  read items[]  →  click item.cx, item.cy
               →  response includes boxes[]  →  read updated items  →  act again
               →  call screenshot only when visual state matters
 ```
 
-`detect_boxes` returns all visible interactive controls (buttons, links, inputs), semantic cards, and images with exact CSS-pixel bounding boxes. It is the primary navigation method — **~5–10× fewer tokens than a screenshot**.
+`detect_boxes` returns all visible interactive controls (buttons, links, inputs), semantic cards, and images. Every item includes **`cx` and `cy`** — the pre-computed center coordinates to pass directly to `click`. No arithmetic needed.
 
 Action commands (`click`, `navigate`, `type`, etc.) automatically include `boxes[]` in their response — read that directly to find the next target without a separate call.
 
 Use `screenshot` when you need to verify visual state (error colours, loading spinners, canvas, overlays) or when `detect_boxes` misses something (shadow DOM, cross-origin iframes).
-
-**Computing click coordinates from a box:**
-```
-cx = rect.left + rect.width  / 2
-cy = rect.top  + rect.height / 2
-```
 
 ## Patterns
 
@@ -66,8 +60,8 @@ cy = rect.top  + rect.height / 2
 # Discover all visible controls, cards, images with bounding boxes
 tiny-browser detect_boxes
 # Returns items like: {"id":"C3","kind":"control","tag":"button","text":"Sign in",
-#   "rect":{"left":320,"top":240,"width":120,"height":40}, "selector":"..."}
-# Compute center: cx = 320 + 120/2 = 380,  cy = 240 + 40/2 = 260
+#   "cx":380,"cy":260,"rect":{"left":320,"top":240,"width":120,"height":40}, ...}
+# cx and cy are pre-computed — pass them directly:
 tiny-browser click '{"x":380,"y":260}'
 # Response includes boxes[] — read updated items to find the next target
 ```
@@ -103,8 +97,8 @@ tiny-browser screenshot
 **Fill a text field**
 ```bash
 tiny-browser detect_boxes
-# Find the input: {"id":"C2","kind":"control","tag":"input","text":"Email","rect":{"left":200,"top":300,"width":300,"height":40}}
-tiny-browser click '{"x":350,"y":320}'  # cx = 200+300/2, cy = 300+40/2
+# Find the input: {"id":"C2","kind":"control","tag":"input","text":"Email","cx":350,"cy":320,...}
+tiny-browser click '{"x":350,"y":320}'  # use cx and cy directly from the item
 tiny-browser key_press '{"key":"SelectAll"}'
 tiny-browser type '{"text":"new value"}'
 ```

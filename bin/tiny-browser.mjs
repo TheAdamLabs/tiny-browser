@@ -34,8 +34,8 @@ const COMMANDS = [
   {
     name: 'detect_boxes',
     params: '[{"draw":bool,"tabId":N,"frameId":"str"}]',
-    returns: '{"items":[{"id":"C0","kind":"control","tag":"button","text":"Submit","rect":{"top":N,"left":N,"right":N,"bottom":N,"width":N,"height":N},"selector":"...","index":N},...]}}',
-    desc: 'Extract all visible interactive controls (C*), semantic cards (K*), and significant images (I*) from the current viewport with their CSS-pixel bounding boxes. Primary navigation method — use cx = rect.left + rect.width/2 and cy = rect.top + rect.height/2 as click coordinates. ~5–10× fewer tokens than a screenshot. draw:true overlays coloured boxes on the page. Pass frameId (from list_frames) to inspect inside an iframe.',
+    returns: '{"items":[{"id":"C0","kind":"control","tag":"button","text":"Submit","cx":N,"cy":N,"rect":{"top":N,"left":N,"right":N,"bottom":N,"width":N,"height":N},"selector":"...","index":N},...]}}',
+    desc: 'Extract all visible interactive controls (C*), semantic cards (K*), and significant images (I*) from the current viewport with their CSS-pixel bounding boxes. Each item includes cx and cy (pre-computed center coordinates) — pass them directly to click without any arithmetic. Primary navigation method — ~5–10× fewer tokens than a screenshot. draw:true overlays coloured boxes on the page. Pass frameId (from list_frames) to inspect inside an iframe.',
     auto_screenshot: false,
   },
   {

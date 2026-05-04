@@ -304,7 +304,9 @@ function detectBoxes({ draw = false } = {}) {
     const vizId = prefix + kindCounters[item.kind]++;
     // eslint-disable-next-line no-unused-vars
     const { el: _, ...rest } = item;
-    return { ...rest, index: i, id: vizId };
+    const cx = Math.round(rest.rect.left + rest.rect.width  / 2);
+    const cy = Math.round(rest.rect.top  + rest.rect.height / 2);
+    return { ...rest, cx, cy, index: i, id: vizId };
   });
 
   // ── DRAW (optional — only when draw:true, for visual debugging) ───────────────

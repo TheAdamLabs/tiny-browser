@@ -75,7 +75,7 @@ tiny-browser navigate '{"url":"https://example.com"}'
 tiny-browser query '{"expression":"document.title"}'
 ```
 
-The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all visible controls, cards, and images with exact CSS-pixel bounding boxes. The agent computes click coordinates from `rect.left + rect.width/2` and `rect.top + rect.height/2` — no PNG parsing needed. Action commands automatically include `boxes[]` in their response for the next round-trip. Screenshots are used only when visual state matters (error colours, canvas, overlays).
+The primary interaction loop is DOM-extraction-first: `detect_boxes` returns all visible controls, cards, and images with exact CSS-pixel bounding boxes. Every item includes pre-computed `cx` and `cy` center coordinates — pass them directly to `click` with no arithmetic. Action commands automatically include `boxes[]` in their response for the next round-trip. Screenshots are used only when visual state matters (error colours, canvas, overlays).
 
 For the full list of commands, params, and patterns see `SKILL.md` or run `tiny-browser help`.
 
