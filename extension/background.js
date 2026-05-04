@@ -1051,7 +1051,7 @@ async function cmdSetFileInput({ selector, files, tabId } = {}) {
  * draw — overlay coloured bounding boxes on the page (default false).
  *        Use draw:true paired with a screenshot for visual debugging only.
  */
-async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
+async function cmdDetectBoxes({ draw = false, include_selector = false, tabId, frameId } = {}) {
   if (!detectBoxesSource) throw new Error('page-extractor.js not loaded yet — retry in a moment');
   const tab = await resolveTab({ tabId });
   // JS dialogs (alert/confirm/prompt) suspend the browser's JS engine. Any
@@ -1077,7 +1077,7 @@ async function cmdDetectBoxes({ draw = false, tabId, frameId } = {}) {
   let evalOptions = {
     expression: `(window.__tinyDetectV !== ${sentinel}
       ? (window.detectBoxes = (() => { ${detectBoxesSource}; return detectBoxes; })(), window.__tinyDetectV = ${sentinel})
-      : null, window.detectBoxes({ draw: ${draw} }))`,
+      : null, window.detectBoxes({ draw: ${draw}, include_selector: ${include_selector} }))`,
     returnByValue: true,
     awaitPromise: false,
   };

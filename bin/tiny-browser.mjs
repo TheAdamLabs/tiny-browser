@@ -33,9 +33,9 @@ const COMMANDS = [
   },
   {
     name: 'detect_boxes',
-    params: '[{"draw":bool,"tabId":N,"frameId":"str"}]',
-    returns: '{"items":[{"id":"C0","kind":"control","tag":"button","text":"Submit","cx":N,"cy":N,"rect":{"top":N,"left":N,"right":N,"bottom":N,"width":N,"height":N},"selector":"...","index":N},...]}}',
-    desc: 'Extract all visible interactive controls (C*), semantic cards (K*), and significant images (I*) from the current viewport with their CSS-pixel bounding boxes. Each item includes cx and cy (pre-computed center coordinates) — pass them directly to click without any arithmetic. Primary navigation method — ~5–10× fewer tokens than a screenshot. draw:true overlays coloured boxes on the page. Pass frameId (from list_frames) to inspect inside an iframe.',
+    params: '[{"draw":bool,"include_selector":bool,"tabId":N,"frameId":"str"}]',
+    returns: '{"items":[{"id":"C0","kind":"control","tag":"button","text":"Submit","cx":N,"cy":N,"w":N,"h":N},...]}}',
+    desc: 'Extract all visible interactive controls (C*), semantic cards (K*), and significant images (I*) from the current viewport. Each item includes id, kind, tag, text, cx/cy (center — pass directly to click), w/h (size). href is included for links; inputType/checked/value for inputs. draw:true overlays coloured boxes. include_selector:true adds full CSS ancestry path (verbose, rarely needed — use only when you must querySelector the exact element). Pass frameId (from list_frames) to inspect inside an iframe.',
     auto_screenshot: false,
   },
   {
@@ -70,7 +70,7 @@ const COMMANDS = [
     name: 'click',
     params: '{"x":N,"y":N[,"precise":bool,"button":"left"|"right"|"middle","tabId":N]}',
     returns: '{"ok":true,"boxes":[...],"screenshot":"..."}',
-    desc: 'Click at viewport coordinates. Get coordinates from detect_boxes (cx = rect.left + rect.width/2, cy = rect.top + rect.height/2) or from screenshot grid labels. Set precise:true for exact pixel targeting (data tables, grids); default adds human-like timing. Use button:"right" for context menus.',
+    desc: 'Click at viewport coordinates. Get coordinates from detect_boxes (cx and cy are pre-computed centers — use them directly) or from screenshot grid labels. Set precise:true for exact pixel targeting (data tables, grids); default adds human-like timing. Use button:"right" for context menus.',
     auto_screenshot: true,
   },
   {

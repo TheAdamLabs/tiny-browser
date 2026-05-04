@@ -64,8 +64,7 @@ Use `screenshot` when you need to verify visual state (error colours, loading sp
 ```bash
 # Discover all visible controls, cards, images with bounding boxes
 tiny-browser detect_boxes
-# Returns items like: {"id":"C3","kind":"control","tag":"button","text":"Sign in",
-#   "cx":380,"cy":260,"rect":{"left":320,"top":240,"width":120,"height":40}, ...}
+# Returns items like: {"id":"C3","kind":"control","tag":"button","text":"Sign in","cx":380,"cy":260,"w":120,"h":40}
 # cx and cy are pre-computed — pass them directly:
 tiny-browser click '{"x":380,"y":260}'
 # Response includes boxes[] — read updated items to find the next target
@@ -373,7 +372,7 @@ Parallel screenshots write to `/tmp/tiny-browser-screenshot-{tabId}.png` and nev
 - **`contenteditable` rich-text fields**: `detect_boxes` now returns `div[contenteditable="true"]` and `[role="textbox"]` elements (LinkedIn composer, comment boxes, Gmail compose, Notion, Slack, etc.) as controls with `inputType:"contenteditable"`. Click the item to focus it, then `type` to insert text — same flow as a normal `<textarea>`.
 - **Exit-intent triggers**: `mouseleave` on `document` (mouse leaving the viewport top) cannot be fired via CDP — `hover` sends `mouseMoved` which doesn't trigger document-level `mouseleave`. Use screenshot to confirm the modal appeared if testing exit-intent flows.
 - **`detect_boxes` covers viewport only**: elements below the fold are not in boxes[]. Scroll first, then call `detect_boxes` again (or read boxes[] from the scroll response) to discover newly-visible content.
-- **`detect_boxes` item fields**: each item carries `id`, `kind`, `tag`, `text`, `rect`, `selector` plus state fields when present — `inputType` (for `<input>`), `checked` (checkbox/radio), `disabled`, `value` (pre-filled text/select), `href` (links). Use these to decide HOW to interact without an extra `query` call: `inputType:"file"` → `set_file_input`; `inputType:"checkbox"` + `checked:false` → `click` to toggle; `disabled:true` → skip.
+- **`detect_boxes` item fields**: each item carries `id`, `kind`, `tag`, `text`, `cx`, `cy`, `w`, `h` plus state fields when present — `inputType` (for `<input>`), `checked` (checkbox/radio), `disabled`, `value` (pre-filled text/select), `href` (links). Use these to decide HOW to interact without an extra `query` call: `inputType:"file"` → `set_file_input`; `inputType:"checkbox"` + `checked:false` → `click` to toggle; `disabled:true` → skip. `rect` and `index` are gone — use `cx`/`cy` directly. Pass `include_selector:true` to add the full CSS ancestry path when you need to `querySelector` the exact element.
 - **`detect_boxes` misses shadow DOM controls**: controls inside shadow roots don't pierce into `querySelectorAll` — if an element is missing from boxes[], fall back to `query` for its rect and use `click` with those coordinates.
 - **checkboxes and radios always appear in boxes[]**: `input[type=checkbox]` and `input[type=radio]` are always included regardless of size; their `text` field shows the associated `<label>` text when one exists, otherwise it's empty and positional targeting is required.
 - **cursor:pointer non-semantic elements**: Custom click targets (`<p>`, `<div>`, `<span>` styled as close buttons, badges, etc.) are now detected as controls when they have `cursor:pointer` computed style and non-empty text. If a clickable element is still missing from boxes[], fall back to `query` to get its rect.

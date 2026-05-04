@@ -1,5 +1,5 @@
 // eslint-disable-next-line no-unused-vars
-function detectBoxes({ draw = false } = {}) {
+function detectBoxes({ draw = false, include_selector = false } = {}) {
   document.querySelectorAll('.__boxoverlay').forEach(x => x.remove());
 
   const px = v => Number.parseFloat(v) || 0;
@@ -317,21 +317,27 @@ function detectBoxes({ draw = false } = {}) {
   // Strip `el` DOM reference before building the return value — keeping it in the
   // serialized payload causes CDP "Object reference chain is too long" on pages
   // with special input types (e.g. file inputs whose FileList chain is unserializable).
-  const all = [...controls, ...clickableNonStd, ...sortHeaders, ...cards, ...images].map((item, i) => {
+  const all = [...controls, ...clickableNonStd, ...sortHeaders, ...cards, ...images].map((item) => {
     const prefix = kindPrefix[item.kind] || 'X';
     const vizId = prefix + kindCounters[item.kind]++;
     // eslint-disable-next-line no-unused-vars
-    const { el: _, ...rest } = item;
-    const cx = Math.round(rest.rect.left + rest.rect.width  / 2);
-    const cy = Math.round(rest.rect.top  + rest.rect.height / 2);
-    return { ...rest, cx, cy, index: i, id: vizId };
+    const { el: _, rect, selector: itemSelector, ...rest } = item;
+    const cx = Math.round(rect.left + rect.width  / 2);
+    const cy = Math.round(rect.top  + rect.height / 2);
+    const w  = rect.width;
+    const h  = rect.height;
+    // Expose raw rect as non-enumerable so draw pass can use it without polluting JSON output.
+    const out = { ...rest, id: vizId, cx, cy, w, h };
+    if (include_selector) out.selector = itemSelector;
+    Object.defineProperty(out, '_rect', { value: rect, enumerable: false });
+    return out;
   });
 
   // ── DRAW (optional — only when draw:true, for visual debugging) ───────────────
   if (draw) {
     const colors = { control: '#e53e3e', card: '#38a169', image: '#6b46c1' };
     all.forEach(item => {
-      const { left, top, width, height } = item.rect;
+      const { left, top, width, height } = item._rect;
       const color = colors[item.kind] || '#999';
       const div = document.createElement('div');
       div.className = '__boxoverlay';
@@ -396,12 +402,12 @@ function pageToMarkdown({ char_limit = 8000 } = {}) {
     if (isHidden(node)) return '';
 
     switch (tag) {
-      case 'H1': return `\n# ${node.textContent.trim()}\n\n`;
-      case 'H2': return `\n## ${node.textContent.trim()}\n\n`;
-      case 'H3': return `\n### ${node.textContent.trim()}\n\n`;
-      case 'H4': return `\n#### ${node.textContent.trim()}\n\n`;
-      case 'H5': return `\n##### ${node.textContent.trim()}\n\n`;
-      case 'H6': return `\n###### ${node.textContent.trim()}\n\n`;
+      case 'H1': return `\n# ${node.textContent.replace(/\s+/g,' ').trim()}\n\n`;
+      case 'H2': return `\n## ${node.textContent.replace(/\s+/g,' ').trim()}\n\n`;
+      case 'H3': return `\n### ${node.textContent.replace(/\s+/g,' ').trim()}\n\n`;
+      case 'H4': return `\n#### ${node.textContent.replace(/\s+/g,' ').trim()}\n\n`;
+      case 'H5': return `\n##### ${node.textContent.replace(/\s+/g,' ').trim()}\n\n`;
+      case 'H6': return `\n###### ${node.textContent.replace(/\s+/g,' ').trim()}\n\n`;
 
       case 'P': {
         const text = childrenMd(node, depth).trim();
@@ -442,7 +448,7 @@ function pageToMarkdown({ char_limit = 8000 } = {}) {
 
       case 'A': {
         const href = node.getAttribute('href');
-        const text = node.textContent.trim();
+        const text = node.textContent.replace(/\s+/g,' ').trim();
         if (!href || !text) return text || '';
         if (href.startsWith('javascript:') || href === '#') return text;
         return `[${text}](${href})`;
